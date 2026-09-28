@@ -1,0 +1,75 @@
+# =============================================================================
+# tiger-go-demo — example YAML config
+# =============================================================================
+# Copy to config.local.yaml (gitignored) and edit:
+#
+#   cp config.example.yaml config.local.yaml
+#   go run ./cmd/quote -config config.local.yaml
+#
+# PRECEDENCE: environment variables > this file > built-in defaults.
+# An unknown key here is a hard error, so typos surface immediately.
+#
+# !! A Tiger SIMULATED account will NOT authenticate against OpenAPI.
+# !! You need a real, funded account with OpenAPI enabled.
+#    Credentials come from https://quant.itigerup.com/openapi/en/
+# =============================================================================
+
+# --- Required ---------------------------------------------------------------
+
+# Developer ID / App Key. Portal: My OpenAPI -> App management.
+tiger_id: ""
+
+# RSA private key for request signing. Paste the PEM body (with the BEGIN and
+# END lines) as a quoted block scalar, or leave empty and use
+# TIGER_PRIVATE_KEY / TIGER_PRIVATE_KEY_FILE instead — an env var overrides
+# this field.
+private_key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  MIIEowIBAAKCAQEA...replace-me...
+  -----END RSA PRIVATE KEY-----
+
+# Trading account, e.g. DU1234567. Required by cmd/trade.
+account: ""
+
+# --- Institutional accounts only -------------------------------------------
+# Leave empty for a normal retail account. An empty value is omitted from
+# request bodies entirely; Tiger returns biz_param_error(1010) if you send
+# secret_key as an empty string.
+secret_key: ""
+
+# --- Runtime ----------------------------------------------------------------
+
+# TBNZ | TBSG | TBAU | TBIH | TBHK
+license: TBNZ
+
+# zh_CN | zh_TW | en_US
+language: en_US
+
+# Timezone used for response timestamps.
+timezone: US/Eastern
+
+# Optional: a stable device id. Leave empty to auto-detect the MAC address.
+# device_id: ""
+
+# HTTP request timeout, Go duration syntax.
+timeout: 15s
+
+# Endpoints. Leave server_url empty to use the production gateway. Dynamic
+# domain resolution is disabled in this project so behaviour is predictable.
+# server_url: https://openapi.tigerfintech.com/gateway
+# quote_server_url: https://openapi.tigerfintech.com/gateway
+# push_url: openapi.tigerfintech.com:8887
+
+# --- Safety -----------------------------------------------------------------
+# THE MOST IMPORTANT LINE IN THIS FILE.
+#
+# Tiger OpenAPI has no paper/simulated mode: every order goes to a real funded
+# account. true (the default) makes place/modify/cancel print the request they
+# WOULD send and exit non-zero without contacting Tiger. Setting this to false
+# is still not enough on its own — --confirm-live is required as well.
+#
+# Leave it true.
+dry_run: true
+
+# debug | info | warn | error
+log_level: info

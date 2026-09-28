@@ -1,0 +1,30 @@
+# Secrets and credentials — NEVER commit these.
+.env
+.env.*
+!.env.example
+*.properties
+config.local.yaml
+config.yaml
+tiger_openapi_config.properties
+tiger.pem
+*.pem
+*.key
+
+# Build output
+/bin/
+/dist/
+tiger-go-demo
+/cmd/quote/quote
+/cmd/trade/trade
+/cmd/push/push
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
