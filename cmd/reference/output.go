@@ -1,0 +1,980 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	sdkmodel "github.com/tigerfintech/openapi-go-sdk/model"
+	sdkquote "github.com/tigerfintech/openapi-go-sdk/quote"
+
+	"github.com/shing1211/tiger-go-demo/internal/rocli"
+)
+
+// This file holds the per-endpoint request + print logic for cmd/reference.
+//
+// Each handler is the same shape: check the flags, honour the context
+// deadline, call exactly one SDK method, print. The SDK error is always wrapped
+// with the endpoint name so a failure says which call produced it.
+
+var out = os.Stdout
+
+// ---- symbol reference ----
+
+// opSymbols returns the full tradable symbol list for a market. With
+// -delay-mins it instead returns delayed briefs for -symbols, which is the
+// endpoint entitled accounts use when they lack a real-time feed.
+func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	if o.delayMins > 0 {
+		symbols := rocli.List(o.symbols)
+		if len(symbols) == 0 {
+			return errSymbols
+		}
+		briefs, err := qc.GetStockDelayBriefs(sdkmodel.StockDelayBriefsRequest{
+			Symbols: symbols,
+			SecType: o.SecType,
+			Lang:    o.Lang,
+		})
+		if err != nil {
+			return fmt.Errorf("get delayed briefs (%s): %w", strings.Join(symbols, ","), err)
+		}
+		rocli.Section(out, "delayed briefs (delay=%d min)", o.delayMins)
+		printBriefs(briefs, o.Limit)
+		return nil
+	}
+	syms, err := qc.GetSymbols(sdkmodel.SymbolsRequest{
+		Market:     o.Market,
+		SecType:    o.SecType,
+		IncludeOtc: o.includeOTC,
+		Lang:       o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get symbols (market=%s sec_type=%s): %w", o.Market, o.SecType, err)
+	}
+	rocli.Section(out, "symbols (market=%s, sec_type=%s, %d total)", o.Market, o.SecType, len(syms))
+	for i, s := range syms {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(syms), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %s\n", s)
+	}
+	return nil
+}
+
+// opSymbolNames returns the same list with display names.
+func opSymbolNames(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	names, err := qc.GetSymbolNames(sdkmodel.SymbolsRequest{
+		Market:     o.Market,
+		SecType:    o.SecType,
+		IncludeOtc: o.includeOTC,
+		Lang:       o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get symbol names (market=%s sec_type=%s): %w", o.Market, o.SecType, err)
+	}
+	rocli.Section(out, "symbol names (market=%s, %d total)", o.Market, len(names))
+	fmt.Fprintf(out, "  %-16s %-8s %-40s\n", "SYMBOL", "MARKET", "NAME")
+	for i, n := range names {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(names), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-16s %-8s %-40s\n", rocli.Dash(n.Symbol), rocli.Dash(n.Market), rocli.Dash(n.Name))
+	}
+	return nil
+}
+
+// opStockDetails returns per-symbol descriptive and valuation fields.
+func opStockDetails(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	details, err := qc.GetStockDetails(sdkmodel.StockDetailsRequest{
+		Symbols: symbols,
+		SecType: o.SecType,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get stock details (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "stock details")
+	for i, d := range details {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(details), o.Limit)
+			break
+		}
+		name := d.NameEN
+		if name == "" {
+			name = d.NameCN
+		}
+		fmt.Fprintf(out, "  %-12s %-34s %-8s %-8s %-8s %-20s\n",
+			rocli.Dash(d.Symbol), rocli.Dash(name), rocli.Dash(d.Market),
+			rocli.Dash(d.Currency), rocli.Dash(d.SecType), rocli.Dash(d.Industry))
+		fmt.Fprintf(out, "    sector=%-24s exchange=%-10s listed=%s\n",
+			rocli.Dash(d.Sector), rocli.Dash(d.Exchange), rocli.MSFmt(d.ListingDate))
+		fmt.Fprintf(out, "    market_cap=%.2f float_cap=%.2f shares=%.0f eps_ttm=%.4f pe_ttm=%.4f\n",
+			d.MarketCap, d.CirculationCap, d.TotalShares, d.EpsTtm, d.PeRatioTtm)
+	}
+	return nil
+}
+
+// opStockIndustry returns the GICS-style classification ladder. The endpoint
+// takes a single symbol, so only the first of -symbols is used.
+func opStockIndustry(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbol := firstSymbol(o.symbols)
+	if symbol == "" {
+		return errSymbol
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	rows, err := qc.GetStockIndustry(sdkmodel.StockIndustryRequest{
+		Symbol:  symbol,
+		Market:  o.Market,
+		SecType: o.SecType,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get stock industry (%s): %w", symbol, err)
+	}
+	rocli.Section(out, "stock industry")
+	fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n", "SYMBOL", "LEVEL", "SECTOR", "GROUP", "INDUSTRY")
+	for i, r := range rows {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(rows), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n",
+			rocli.Dash(r.Symbol), rocli.Dash(r.Level), rocli.Dash(r.GSector), rocli.Dash(r.GGroup), rocli.Dash(r.GInd))
+		if r.GSubInd != "" {
+			fmt.Fprintf(out, "    sub-industry=%s\n", r.GSubInd)
+		}
+	}
+	return nil
+}
+
+// opStockBroker returns the broker-by-broker distribution of a stock's trades.
+func opStockBroker(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbol := firstSymbol(o.symbols)
+	if symbol == "" {
+		return errSymbol
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	b, err := qc.GetStockBroker(sdkmodel.StockBrokerRequest{
+		Symbol:  symbol,
+		Limit:   o.Limit,
+		SecType: o.SecType,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get stock broker (%s): %w", symbol, err)
+	}
+	rocli.Section(out, "broker distribution (%s)", symbol)
+	if b == nil {
+		fmt.Fprintln(out, "  (no data returned)")
+		return nil
+	}
+	printBrokerSide("bid", b.LevelBidList)
+	printBrokerSide("ask", b.LevelAskList)
+	return nil
+}
+
+func printBrokerSide(label string, levels []sdkmodel.StockBrokerItem) {
+	if len(levels) == 0 {
+		fmt.Fprintf(out, "  %s: (none)\n", label)
+		return
+	}
+	fmt.Fprintf(out, "  %s side:\n", label)
+	for _, lv := range levels {
+		var names []string
+		for _, br := range lv.Brokers {
+			names = append(names, rocli.Dash(br.Name))
+		}
+		fmt.Fprintf(out, "    level=%-4d price=%-10.4f %s\n", lv.Level, lv.Price, strings.Join(names, ", "))
+	}
+}
+
+// ---- fundamentals ----
+
+// opStockFundamental returns Tiger's fundamental bundle. The SDK hands back a
+// raw map because the field set is server-defined, so it is dumped as JSON
+// rather than forced into invented columns.
+func opStockFundamental(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	fund, err := qc.GetStockFundamental(sdkmodel.StockFundamentalRequest{
+		Symbols: symbols,
+		Market:  o.Market,
+		SecType: o.SecType,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get stock fundamental (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "stock fundamental (%s)", strings.Join(symbols, ","))
+	if len(fund) == 0 {
+		fmt.Fprintln(out, "  (no data returned)")
+		return nil
+	}
+	return rocli.JSON(out, fund)
+}
+
+// opFinancialDaily returns a daily time series of named fundamental fields.
+//
+// -fields is required by the API, so an empty value is refused here rather than
+// sent as an empty list and reported as an opaque server error.
+func opFinancialDaily(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	fields := rocli.ListRaw(o.fields)
+	if len(fields) == 0 {
+		return errFlag("-fields", "revenue,eps")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	items, err := qc.GetFinancialDaily(sdkmodel.FinancialDailyRequest{
+		Symbols:   symbols,
+		Market:    o.Market,
+		Fields:    fields,
+		BeginDate: o.beginDate,
+		EndDate:   o.endDate,
+	})
+	if err != nil {
+		return fmt.Errorf("get financial daily (%s, fields=%s): %w", strings.Join(symbols, ","), strings.Join(fields, ","), err)
+	}
+	rocli.Section(out, "financial daily")
+	fmt.Fprintf(out, "  %-12s %-20s %-14s %18s\n", "SYMBOL", "FIELD", "DATE", "VALUE")
+	for i, it := range items {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(items), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-20s %-14s %18.4f\n",
+			it.Symbol, it.Field, rocli.MSFmt(it.Date), it.Value)
+	}
+	return nil
+}
+
+// opFinancialReport returns period-report figures (annual, quarterly, ...).
+// Its date bounds are epoch milliseconds, so the YYYY-MM-DD flags are converted.
+func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	fields := rocli.ListRaw(o.fields)
+	if len(fields) == 0 {
+		return errFlag("-fields", "revenue,net_income")
+	}
+	req := sdkmodel.FinancialReportRequest{
+		Symbols:    symbols,
+		Market:     o.Market,
+		Fields:     fields,
+		PeriodType: o.periodType,
+	}
+	if d := dateToMillis(o.beginDate); d != nil {
+		req.BeginDate = d
+	}
+	if d := dateToMillis(o.endDate); d != nil {
+		req.EndDate = d
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	items, err := qc.GetFinancialReport(req)
+	if err != nil {
+		return fmt.Errorf("get financial report (%s, fields=%s, period_type=%s): %w",
+			strings.Join(symbols, ","), strings.Join(fields, ","), dashOr(o.periodType, "unset"), err)
+	}
+	rocli.Section(out, "financial report")
+	fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n", "SYMBOL", "FIELD", "CCY", "FILED", "PERIOD_END", "VALUE")
+	for i, it := range items {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(items), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n",
+			it.Symbol, it.Field, rocli.Dash(it.Currency), rocli.Dash(it.FilingDate), rocli.Dash(it.PeriodEndDate), rocli.Dash(it.Value))
+	}
+	return nil
+}
+
+// opFinancialCurrency reports the trading currency of each symbol.
+func opFinancialCurrency(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	ccies, err := qc.GetFinancialCurrency(sdkmodel.FinancialCurrencyRequest{
+		Symbols: symbols,
+		Market:  o.Market,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get financial currency (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "financial currency")
+	fmt.Fprintf(out, "  %-12s %-8s %-8s\n", "SYMBOL", "MARKET", "CCY")
+	for i, c := range ccies {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(ccies), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-8s\n", rocli.Dash(c.Symbol), rocli.Dash(c.Market), rocli.Dash(c.Currency))
+	}
+	return nil
+}
+
+// opExchangeRate returns FX rates. This endpoint wants YYYYMMDD dates, not the
+// YYYY-MM-DD used by the calendar, so the dashes are stripped.
+func opExchangeRate(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	currencies := rocli.List(o.currencies)
+	if len(currencies) == 0 {
+		return errFlag("-currencies", "USD,HKD")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	rates, err := qc.GetFinancialExchangeRate(sdkmodel.FinancialExchangeRateRequest{
+		CurrencyList: currencies,
+		BeginDate:    compactDate(o.beginDate),
+		EndDate:      compactDate(o.endDate),
+		Timezone:     "US/Eastern",
+		Lang:         o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get exchange rate (%s): %w", strings.Join(currencies, ","), err)
+	}
+	rocli.Section(out, "exchange rates")
+	fmt.Fprintf(out, "  %-8s %-12s %-8s %18s\n", "CCY", "BASE", "DATE", "RATE")
+	for i, r := range rates {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(rates), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-8s %-12s %-8s %18.6f\n",
+			rocli.Dash(r.Currency), rocli.Dash(r.BaseCurrency), rocli.Dash(r.Date), r.Rate)
+	}
+	return nil
+}
+
+// opShortInterest returns short-interest statistics.
+func opShortInterest(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	rows, err := qc.GetShortInterest(sdkmodel.ShortInterestRequest{
+		Symbols: symbols,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get short interest (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "short interest")
+	fmt.Fprintf(out, "  %-12s %-12s %14s %14s %10s %10s %10s\n", "SYMBOL", "SETTLED", "SHORT", "PREV", "%FLOAT", "DAYS", "CHG%")
+	for i, s := range rows {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(rows), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-12s %14.0f %14.0f %10.2f %10.2f %9.2f%%\n",
+			s.Symbol, rocli.Dash(s.SettlementDate), s.ShortInterest, s.ShortInterestPrevious,
+			s.PercentOfFloat, s.DaysToCover, s.PercentChange)
+	}
+	return nil
+}
+
+// ---- calendars and screens ----
+
+// opCalendar reports which days a market trades.
+func opCalendar(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	days, err := qc.GetTradingCalendar(sdkmodel.TradingCalendarRequest{
+		Market:    o.Market,
+		BeginDate: o.beginDate,
+		EndDate:   o.endDate,
+		Lang:      o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get trading calendar (market=%s, %s..%s): %w",
+			o.Market, dashOr(o.beginDate, "open"), dashOr(o.endDate, "open"), err)
+	}
+	rocli.Section(out, "trading calendar (market=%s)", o.Market)
+	fmt.Fprintf(out, "  %-8s %-12s %-10s %-16s\n", "MARKET", "DATE", "TRADING", "SESSION")
+	for i, d := range days {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(days), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-8s %-12s %-10v %-16s\n",
+			rocli.Dash(d.Market), rocli.Dash(d.Date), d.IsTrading, rocli.Dash(d.SessionType))
+	}
+	return nil
+}
+
+// opScanner runs the stock screener. Its filters are open-ended server-side
+// structures, so they arrive as JSON on the command line and are validated
+// before the request goes out.
+func opScanner(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	req := sdkmodel.MarketScannerRequest{
+		Market:   o.Market,
+		Page:     o.Page,
+		PageSize: o.PageSize,
+	}
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = o.Limit
+	}
+	if err := rocli.JSONFlag("base-filters", o.baseFilters, &req.BaseFilterList); err != nil {
+		return err
+	}
+	if err := rocli.JSONFlag("sort", o.sortJSON, &req.SortFieldData); err != nil {
+		return err
+	}
+	if tags := rocli.ListRaw(o.multiTags); len(tags) > 0 {
+		req.MultiTagsFields = tags
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	res, err := qc.MarketScanner(req)
+	if err != nil {
+		return fmt.Errorf("market scanner (market=%s page=%d page_size=%d): %w", o.Market, req.Page, req.PageSize, err)
+	}
+	rocli.Section(out, "market scanner (market=%s)", o.Market)
+	if res == nil {
+		fmt.Fprintln(out, "  (no data returned)")
+		return nil
+	}
+	fmt.Fprintf(out, "  page %d/%d, %d match(es), page_size=%d cursor=%s\n",
+		res.Page, res.TotalPage, res.TotalCount, res.PageSize, rocli.Dash(res.CursorID))
+	for i, it := range res.Items {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(res.Items), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s\n", rocli.Dash(it.Symbol), rocli.Dash(it.Market))
+		for _, group := range []struct {
+			name string
+			rows []sdkmodel.ScannerDataRow
+		}{
+			{"base", it.BaseDataList},
+			{"accumulate", it.AccumulateDataList},
+			{"financial", it.FinancialDataList},
+			{"multi_tag", it.MultiTagDataList},
+		} {
+			if len(group.rows) == 0 {
+				continue
+			}
+			fmt.Fprintf(out, "    [%s]\n", group.name)
+			for _, row := range group.rows {
+				fmt.Fprintf(out, "      %-24s %-24s %s\n", rocli.Dash(row.Name), rocli.Dash(row.Value), fmt.Sprintf("%.4f", row.Data))
+			}
+		}
+	}
+	return nil
+}
+
+// opScannerTags lists the multi-tag fields the screener understands.
+func opScannerTags(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	groups, err := qc.GetMarketScannerTags(sdkmodel.MarketScannerTagsRequest{
+		Market:          o.Market,
+		MultiTagsFields: rocli.ListRaw(o.multiTags),
+		Lang:            o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get market scanner tags (market=%s): %w", o.Market, err)
+	}
+	rocli.Section(out, "market scanner tags (market=%s)", o.Market)
+	if len(groups) == 0 {
+		fmt.Fprintln(out, "  (no tags returned)")
+		return nil
+	}
+	// The tag payload is server-defined, so it is dumped faithfully instead of
+	// being squeezed into a guessed column layout.
+	return rocli.JSON(out, groups)
+}
+
+// opIndustryList lists Tiger's industry classifications.
+func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	items, err := qc.GetIndustryList(sdkmodel.IndustryListRequest{
+		IndustryLevel: o.industryLvl,
+		Lang:          o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get industry list (level=%s): %w", dashOr(o.industryLvl, "all"), err)
+	}
+	rocli.Section(out, "industry list (level=%s)", dashOr(o.industryLvl, "all"))
+	fmt.Fprintf(out, "  %-12s %-8s %-40s\n", "ID", "LEVEL", "NAME")
+	for i, it := range items {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(items), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-40s\n", rocli.Dash(it.ID), rocli.Dash(it.Level), rocli.Dash(it.Name))
+	}
+	return nil
+}
+
+// opIndustryStocks lists the constituents of one industry.
+func opIndustryStocks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	id := strings.TrimSpace(o.industryID)
+	if id == "" {
+		return errFlag("-industry-id", "1001 (see -op industry-list)")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	stocks, err := qc.GetIndustryStocks(sdkmodel.IndustryStocksRequest{
+		IndustryID: id,
+		Market:     o.Market,
+		Lang:       o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get industry stocks (industry_id=%s market=%s): %w", id, o.Market, err)
+	}
+	rocli.Section(out, "industry stocks (industry_id=%s)", id)
+	fmt.Fprintf(out, "  %-12s %-34s %10s %9s\n", "SYMBOL", "NAME", "CHANGE", "CHG%")
+	for i, s := range stocks {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(stocks), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-34s %10.4f %8.2f%%\n",
+			rocli.Dash(s.Symbol), rocli.Dash(s.Name), s.Change, s.ChangeRate)
+	}
+	return nil
+}
+
+// ---- extras ----
+
+// opTicks returns stock trade ticks. Unlike the option and futures tick
+// endpoints this one takes a symbol list plus an index range, which is what
+// makes it usable for equities.
+func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	ticks, err := qc.GetTradeTick(sdkmodel.TradeTickRequest{
+		Symbols: symbols,
+		Limit:   o.Limit,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get trade ticks (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "trade ticks")
+	for _, t := range ticks {
+		fmt.Fprintf(out, "  %s (%d..%d, %d tick(s))\n", t.Symbol, t.BeginIndex, t.EndIndex, len(t.Items))
+		fmt.Fprintf(out, "  %-22s %-8s %10s %12s\n", "TIME", "COND", "PRICE", "VOLUME")
+		for i, it := range t.Items {
+			if i >= o.Limit {
+				rocli.Truncate(out, i, len(t.Items), o.Limit)
+				break
+			}
+			fmt.Fprintf(out, "  %-22s %-8s %10.4f %12d\n",
+				rocli.MSFmt(it.Time), rocli.Dash(it.Cond), it.Price, it.Volume)
+		}
+	}
+	return nil
+}
+
+// opTimeline returns the intraday timeline via the v3 request form, which also
+// covers crypto when -sec-type CC is used.
+func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	tls, err := qc.GetTimelineByReq(sdkmodel.TimelineRequest{
+		Symbols: symbols,
+		SecType: o.SecType,
+	})
+	if err != nil {
+		return fmt.Errorf("get timeline (sec_type=%s): %w", o.SecType, err)
+	}
+	rocli.Section(out, "intraday timeline")
+	for _, t := range tls {
+		fmt.Fprintf(out, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
+		for _, b := range []struct {
+			name   string
+			bucket *sdkmodel.TimelineBucket
+		}{
+			{"pre_hours", t.PreHours},
+			{"intraday", t.Intraday},
+			{"after_hours", t.AfterHours},
+		} {
+			if b.bucket == nil || len(b.bucket.Items) == 0 {
+				continue
+			}
+			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
+			for i, it := range b.bucket.Items {
+				if i >= o.Limit {
+					rocli.Truncate(out, i, len(b.bucket.Items), o.Limit)
+					break
+				}
+				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
+					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
+			}
+		}
+	}
+	return nil
+}
+
+// opDelayed returns delayed stock quotes (wire: quote_delay), which is the
+// endpoint entitled accounts use instead of GetRealTimeQuote.
+func opDelayed(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	briefs, err := qc.GetDelayedQuote(sdkmodel.StockDelayBriefsRequest{
+		Symbols: symbols,
+		SecType: o.SecType,
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get delayed quote (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "delayed quotes")
+	printBriefs(briefs, o.Limit)
+	return nil
+}
+
+// opKlinePage walks the paged k-line endpoint and returns a flat bar list,
+// which is what you want when a series is longer than one page.
+func opKlinePage(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbol := firstSymbol(o.symbols)
+	if symbol == "" {
+		return errSymbol
+	}
+	pageSize := o.PageSize
+	if pageSize <= 0 {
+		pageSize = o.Limit
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	bars, err := qc.GetKlineByPage(sdkmodel.KlineByPageRequest{
+		Symbol:    symbol,
+		SecType:   o.SecType,
+		Period:    o.period,
+		BeginTime: o.Begin,
+		EndTime:   o.End,
+		TotalSize: o.totalSize,
+		PageSize:  pageSize,
+		Right:     "forward",
+		Lang:      o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get kline by page (%s, period=%s, page_size=%d): %w", symbol, o.period, pageSize, err)
+	}
+	rocli.Section(out, "k-lines by page (%s, period=%s)", symbol, o.period)
+	fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
+	for i, b := range bars {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(bars), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
+			rocli.MSFmt(b.Time), b.Open, b.High, b.Low, b.Close, b.Volume)
+	}
+	return nil
+}
+
+// opKlineQuota reports how much k-line quota the account has left, which is the
+// first thing to check when a bar query starts failing.
+func opKlineQuota(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	quotas, err := qc.GetKlineQuota(sdkmodel.KlineQuotaRequest{WithDetails: true, Lang: o.Lang})
+	if err != nil {
+		return fmt.Errorf("get kline quota: %w", err)
+	}
+	rocli.Section(out, "k-line quota")
+	if len(quotas) == 0 {
+		fmt.Fprintln(out, "  (no quota returned)")
+		return nil
+	}
+	for _, q := range quotas {
+		fmt.Fprintf(out, "  %-20s used=%-8d quota=%-8d detail=%d\n", rocli.Dash(q.Method), q.Used, q.Quota, len(q.Detail))
+		for _, d := range q.Detail {
+			fmt.Fprintf(out, "    %v\n", d)
+		}
+	}
+	return nil
+}
+
+// opTradeMetas returns trading metadata (lot size, tick size, shortable flags).
+func opTradeMetas(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	metas, err := qc.GetTradeMetas(sdkmodel.TradeMetasRequest{Symbols: symbols, Lang: o.Lang})
+	if err != nil {
+		return fmt.Errorf("get trade metas (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "trade metadata")
+	fmt.Fprintf(out, "  %-12s %8s %10s %12s %-10s %-12s\n", "SYMBOL", "LOT", "MIN_TICK", "SPREAD", "SHORTABLE", "MARGINABLE")
+	for i, m := range metas {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(metas), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %8d %10.4f %12.4f %-10s %-12s\n",
+			rocli.Dash(m.Symbol), m.LotSize, m.MinTick, m.SpreadScale,
+			rocli.Dash(m.ShortableFlag), rocli.Dash(m.MarginableFlag))
+	}
+	return nil
+}
+
+// opQuotePermission reports which market-data permissions the account holds and
+// when they expire. It is a read; GrabQuotePermission, which CLAIMS a
+// permission, is deliberately not wired up here.
+func opQuotePermission(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	perms, err := qc.GetQuotePermission(sdkmodel.QuotePermissionRequest{
+		BeginDate: o.beginDate,
+		EndDate:   o.endDate,
+		Lang:      o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get quote permission (%s..%s): %w", dashOr(o.beginDate, "open"), dashOr(o.endDate, "open"), err)
+	}
+	rocli.Section(out, "quote permissions")
+	if len(perms) == 0 {
+		fmt.Fprintln(out, "  (no permissions returned)")
+		return nil
+	}
+	for i, p := range perms {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(perms), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-30s expires_at=%s\n", rocli.Dash(p.Name), rocli.MSFmt(p.ExpireAt))
+	}
+	return nil
+}
+
+// opTradeRank returns the market's movers board.
+func opTradeRank(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	ranks, err := qc.GetTradeRank(sdkmodel.TradeRankRequest{Market: o.Market, Lang: o.Lang})
+	if err != nil {
+		return fmt.Errorf("get trade rank (market=%s): %w", o.Market, err)
+	}
+	rocli.Section(out, "trade rank (market=%s)", o.Market)
+	fmt.Fprintf(out, "  %-12s %-28s %10s %9s %12s %16s\n", "SYMBOL", "NAME", "LAST", "CHG%", "VOLUME", "AMOUNT")
+	for i, r := range ranks {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(ranks), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-28s %10.4f %8.2f%% %12d %16.2f\n",
+			rocli.Dash(r.Symbol), rocli.Dash(r.Name), r.LatestPr, r.ChangeRate, r.Volume, r.Amount)
+	}
+	return nil
+}
+
+// opOvernight returns overnight-session quotes.
+func opOvernight(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	quotes, err := qc.GetQuoteOvernight(sdkmodel.QuoteOvernightRequest{Symbols: symbols, Lang: o.Lang})
+	if err != nil {
+		return fmt.Errorf("get overnight quotes (%s): %w", strings.Join(symbols, ","), err)
+	}
+	rocli.Section(out, "overnight quotes")
+	fmt.Fprintf(out, "  %-12s %10s %10s %10s %12s %-20s\n", "SYMBOL", "LAST", "BID", "ASK", "VOLUME", "TIME")
+	for i, q := range quotes {
+		if i >= o.Limit {
+			rocli.Truncate(out, i, len(quotes), o.Limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %10.4f %10.4f %10.4f %12d %-20s\n",
+			rocli.Dash(q.Symbol), q.LatestPrice, q.BidPrice, q.AskPrice, q.Volume, rocli.MSFmt(q.Timestamp))
+	}
+	return nil
+}
+
+// opTimelineHistory returns intraday timeline data for a past date.
+func opTimelineHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
+	symbols := rocli.List(o.symbols)
+	if len(symbols) == 0 {
+		return errSymbols
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	tls, err := qc.GetTimelineHistory(sdkmodel.TimelineHistoryRequest{
+		Symbols: symbols,
+		Date:    o.beginDate,
+		Right:   "forward",
+		Lang:    o.Lang,
+	})
+	if err != nil {
+		return fmt.Errorf("get timeline history (%s, date=%s): %w", strings.Join(symbols, ","), dashOr(o.beginDate, "today"), err)
+	}
+	rocli.Section(out, "historical timeline")
+	for _, t := range tls {
+		fmt.Fprintf(out, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
+		for _, b := range []struct {
+			name   string
+			bucket *sdkmodel.TimelineBucket
+		}{
+			{"pre_hours", t.PreHours},
+			{"intraday", t.Intraday},
+			{"after_hours", t.AfterHours},
+		} {
+			if b.bucket == nil || len(b.bucket.Items) == 0 {
+				continue
+			}
+			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
+			for i, it := range b.bucket.Items {
+				if i >= o.Limit {
+					rocli.Truncate(out, i, len(b.bucket.Items), o.Limit)
+					break
+				}
+				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
+					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
+			}
+		}
+	}
+	return nil
+}
+
+// ---- shared print helpers ----
+
+func printBriefs(briefs []sdkmodel.Brief, limit int) {
+	fmt.Fprintf(out, "  %-12s %10s %10s %9s %12s %-20s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")
+	for i, b := range briefs {
+		if i >= limit {
+			rocli.Truncate(out, i, len(briefs), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %10.4f %10.4f %8.2f%% %12d %-20s\n",
+			b.Symbol, b.LatestPrice, b.Change, b.ChangeRate, b.Volume, rocli.MSFmt(b.LatestTime))
+	}
+}
+
+// ---- helpers ----
+
+var (
+	errSymbols = errFlag("-symbols", "AAPL,MSFT")
+	errSymbol  = errFlag("-symbols", "AAPL")
+)
+
+func errFlag(name, example string) error {
+	return &flagError{name: name, example: example}
+}
+
+type flagError struct{ name, example string }
+
+func (e *flagError) Error() string {
+	return fmt.Sprintf("%s is required for this endpoint, e.g. -%s %s",
+		strings.TrimLeft(e.name, "-"), strings.TrimLeft(e.name, "-"), e.example)
+}
+
+func firstSymbol(list string) string {
+	if l := rocli.List(list); len(l) > 0 {
+		return l[0]
+	}
+	return ""
+}
+
+func dashOr(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return s
+}
+
+// compactDate turns YYYY-MM-DD into the YYYYMMDD the exchange-rate endpoint
+// expects. An empty input stays empty, which means "server default".
+func compactDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.ReplaceAll(s, "-", "")
+}
+
+// dateToMillis converts a YYYY-MM-DD flag into the *int64 epoch-millisecond
+// bound the financial-report endpoint uses. A blank or unparseable date yields
+// nil, i.e. no bound, rather than a bogus timestamp.
+func dateToMillis(s string) *int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return nil
+	}
+	ms := t.UnixMilli()
+	return &ms
+}

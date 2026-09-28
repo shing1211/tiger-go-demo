@@ -14,12 +14,16 @@ help: ## Show this help
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build
-build: ## Compile all three binaries into ./bin
+build: ## Compile all binaries into ./bin
 	@mkdir -p $(BIN)
-	$(GO) build -o $(BIN)/quote  ./cmd/quote
-	$(GO) build -o $(BIN)/trade  ./cmd/trade
-	$(GO) build -o $(BIN)/push   ./cmd/push
-	@echo "built: $(BIN)/quote $(BIN)/trade $(BIN)/push"
+	$(GO) build -o $(BIN)/quote     ./cmd/quote
+	$(GO) build -o $(BIN)/trade     ./cmd/trade
+	$(GO) build -o $(BIN)/push      ./cmd/push
+	$(GO) build -o $(BIN)/options   ./cmd/options
+	$(GO) build -o $(BIN)/futures   ./cmd/futures
+	$(GO) build -o $(BIN)/reference ./cmd/reference
+	$(GO) build -o $(BIN)/corporate ./cmd/corporate
+	@echo "built: quote trade push options futures reference corporate"
 
 .PHONY: run-quote
 run-quote: ## Run the quote command (read-only market data)
@@ -32,6 +36,22 @@ run-trade: ## Run the trade command (queries, or gated writes)
 .PHONY: run-push
 run-push: ## Run the push command (real-time subscription feed)
 	$(GO) run ./cmd/push $(ARGS)
+
+.PHONY: run-options
+run-options: ## Run the options command (read-only option market data)
+	$(GO) run ./cmd/options $(ARGS)
+
+.PHONY: run-futures
+run-futures: ## Run the futures command (read-only futures market data)
+	$(GO) run ./cmd/futures $(ARGS)
+
+.PHONY: run-reference
+run-reference: ## Run the reference command (read-only reference and fundamental data)
+	$(GO) run ./cmd/reference $(ARGS)
+
+.PHONY: run-corporate
+run-corporate: ## Run the corporate command (read-only corporate actions, warrants, funds)
+	$(GO) run ./cmd/corporate $(ARGS)
 
 .PHONY: test
 test: ## Run unit tests

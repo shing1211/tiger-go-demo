@@ -10,7 +10,7 @@ package tigersdk
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"time"
 
 	sdkclient "github.com/tigerfintech/openapi-go-sdk/client"
@@ -155,7 +155,7 @@ func Push(cfg *config.Config, opts PushOptions) (*sdkpush.PushClient, error) {
 // WarnStrayProperties prints a warning if the SDK's auto-discovery file is
 // present in dir. We neutralise it, but a user who edited it deserves to know
 // why it has no effect.
-func WarnStrayProperties(dir string, w *os.File) {
+func WarnStrayProperties(dir string, w io.Writer) {
 	p, found := config.WarnIfStrayPropertiesFile(dir)
 	if !found {
 		return

@@ -17,6 +17,10 @@ tiger-go-demo
 /cmd/quote/quote
 /cmd/trade/trade
 /cmd/push/push
+/cmd/options/options
+/cmd/futures/futures
+/cmd/reference/reference
+/cmd/corporate/corporate
 
 # Go
 *.test
