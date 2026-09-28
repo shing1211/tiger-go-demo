@@ -19,8 +19,8 @@ import (
 	sdkquote "github.com/tigerfintech/openapi-go-sdk/quote"
 	sdktrade "github.com/tigerfintech/openapi-go-sdk/trade"
 
-	"github.com/tchan/tiger-go-demo/internal/config"
-	"github.com/tchan/tiger-go-demo/internal/logging"
+	"github.com/shing1211/tiger-go-demo/internal/config"
+	"github.com/shing1211/tiger-go-demo/internal/logging"
 )
 
 // NewClientConfig converts our config into an SDK ClientConfig.

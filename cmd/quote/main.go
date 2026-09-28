@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tchan/tiger-go-demo/internal/config"
-	"github.com/tchan/tiger-go-demo/internal/logging"
-	"github.com/tchan/tiger-go-demo/internal/tigersdk"
+	"github.com/shing1211/tiger-go-demo/internal/config"
+	"github.com/shing1211/tiger-go-demo/internal/logging"
+	"github.com/shing1211/tiger-go-demo/internal/tigersdk"
 )
 
 func main() {

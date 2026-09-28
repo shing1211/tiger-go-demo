@@ -1,4 +1,4 @@
-module github.com/tchan/tiger-go-demo
+module github.com/shing1211/tiger-go-demo
 
 go 1.24
 
