@@ -8,12 +8,12 @@ A demonstration built on someone else's client library is only worth as much as 
 
 ### Requirement: The whole client surface is scanned
 
-The coverage check SHALL scan every client type the shipped library provides, not a subset of them, and SHALL report the covered and uncovered counts over that whole set. Against the library version this project depends on the scanned surface is 159 methods, of which 137 SHALL be referenced from command or internal code and 22 SHALL remain, and those 22 SHALL be exactly the set listed in the allow-list.
+The coverage check SHALL scan every client type the shipped library provides, not a subset of them, and SHALL report the covered and uncovered counts over that whole set. Against the library version this project depends on the scanned surface is 159 methods, of which 140 SHALL be referenced from command or internal code and 19 SHALL remain, and those 19 SHALL be exactly the set listed in the allow-list.
 
 #### Scenario: The current state matches the allow-list
 
 - **WHEN** the check runs against the library version this project depends on
-- **THEN** it reports 137 of 159 methods covered with 22 uncovered, and the 22 match the allow-list exactly
+- **THEN** it reports 140 of 159 methods covered with 19 uncovered, and the 19 match the allow-list exactly
 
 #### Scenario: A client type added to the library is scanned
 
@@ -98,7 +98,7 @@ The reason meaning that the library's own code calls the method SHALL be earned 
 
 ### Requirement: The three module-contained methods are escape hatches, not library calls
 
-One uncovered method SHALL be a raw request escape hatch with no caller anywhere in the module, and two SHALL be token-manipulation methods whose only non-test callers are a manual example program and an integration program shipped inside the module. All three SHALL be classified as escape hatches this project has not reached, and no artifact may state or imply that the library invokes any of them on its own paths.
+Three methods SHALL be recorded as escape hatches rather than library calls: one raw request method with no caller anywhere in the module, and two token-manipulation methods whose only non-test callers are a manual example program and an integration program shipped inside the module. No artifact may state or imply that the library invokes any of them on its own paths, and that record SHALL survive the fact that this project now calls all three.
 
 #### Scenario: The no-caller method is not attributed to the library
 
@@ -110,6 +110,11 @@ One uncovered method SHALL be a raw request escape hatch with no caller anywhere
 - **WHEN** an artifact classifies the two token-manipulation methods
 - **THEN** it states that their only in-module callers are programs shipped for a human to run, and does not describe the library as depending on them
 
+#### Scenario: Covering one of the three does not change the record
+
+- **WHEN** this project calls one of the three and it therefore leaves the allow-list as covered
+- **THEN** the artifacts still state that the library does not call it, because coverage is a fact about this project and the library-internal reason is a fact about the library
+
 #### Scenario: Relabelling one of the three is a visible change
 
 - **WHEN** a maintainer moves one of the three from the escape-hatch reason to the library-internal reason
@@ -117,7 +122,7 @@ One uncovered method SHALL be a raw request escape hatch with no caller anywhere
 
 ### Requirement: Every uncovered method is structurally excluded
 
-The 22 uncovered methods SHALL be excluded for one of the stated reasons and no other: six are deprecated aliases whose replacements the commands call instead, seven would change account state and would therefore need the write gate in front of them, one is not a request at all, four are user-facing escape hatches this project has not reached yet, and four are called by the library's own code rather than by this project.
+The 19 uncovered methods SHALL be excluded for one of the stated reasons and no other: six are deprecated aliases whose replacements the commands call instead, seven would change account state and would therefore need the write gate in front of them, one is not a request at all, one is a user-facing escape hatch this project has not reached yet, and four are called by the library's own code rather than by this project.
 
 #### Scenario: The six deprecated aliases are unused because their replacements are called
 
@@ -136,12 +141,12 @@ The 22 uncovered methods SHALL be excluded for one of the stated reasons and no 
 
 #### Scenario: The escape hatches are not claims about the library
 
-- **WHEN** the four escape-hatch methods are enumerated
+- **WHEN** the remaining escape-hatch method is enumerated
 - **THEN** each is described as something this project has not called, and none is described as something the library calls on its own paths
 
 #### Scenario: No uncovered method is a read that was skipped
 
-- **WHEN** the 22 uncovered methods are enumerated
+- **WHEN** the 19 uncovered methods are enumerated
 - **THEN** none of them is a plain read, and the read side of each excluded operation is covered
 
 #### Scenario: A deprecated alias gaining a call site is a failure, not progress

@@ -59,6 +59,25 @@ The bearer token the client library discovers SHALL be cleared on the client con
 - **WHEN** the client library is built with explicit credentials and a token file in the working directory
 - **THEN** it does pick the token up from that file, which is what makes clearing it load-bearing
 
+### Requirement: A token the operator supplies on purpose is not the file defence
+
+The clearing above SHALL be unchanged for every command, and a command that lets an operator place a token they already hold SHALL set it through a different field, only for its own process, and only when the operator typed it. Such a command SHALL state, before the value is used, that the value is in the shell's history and readable through the process list, and SHALL NOT print the value at any point.
+
+#### Scenario: A discovered token file still cannot supply a token to the command that accepts one
+
+- **WHEN** a token file is present and the operator runs the command that accepts a token from the command line without passing one
+- **THEN** the file is reported as ignored and supplies nothing, because the operator's input and the discovered file reach different fields
+
+#### Scenario: The cost of supplying a token is stated before it is used
+
+- **WHEN** a run supplies a token on the command line
+- **THEN** a warning naming the shell history and the process list is written before the value is used
+
+#### Scenario: The supplied value is never printed
+
+- **WHEN** a run supplies a token and completes, and also when the run fails partway
+- **THEN** no output contains any part of the value, on either path
+
 ### Requirement: Discovered files are named in a warning, and env-var values are not
 
 A properties file or token file found in the working directory, a properties file found in the home directory, and the file the token-file environment variable names SHALL each be named in a warning that states it is being ignored, explains the consequence, and tells the user to delete it. An environment variable carrying a value SHALL NOT be warned about, and that absence SHALL be a recorded gap, not an oversight.

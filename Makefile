@@ -23,7 +23,8 @@ build: ## Compile all binaries into ./bin
 	$(GO) build -o $(BIN)/futures   ./cmd/futures
 	$(GO) build -o $(BIN)/reference ./cmd/reference
 	$(GO) build -o $(BIN)/corporate ./cmd/corporate
-	@echo "built: quote trade push options futures reference corporate"
+	$(GO) build -o $(BIN)/token     ./cmd/token
+	@echo "built: quote trade push options futures reference corporate token"
 
 .PHONY: run-quote
 run-quote: ## Run the quote command (read-only market data)
@@ -52,6 +53,10 @@ run-reference: ## Run the reference command (read-only reference and fundamental
 .PHONY: run-corporate
 run-corporate: ## Run the corporate command (read-only corporate actions, warrants, funds)
 	$(GO) run ./cmd/corporate $(ARGS)
+
+.PHONY: run-token
+run-token: ## Run the token command (bearer token in memory, local push subscription state)
+	$(GO) run ./cmd/token $(ARGS)
 
 .PHONY: test
 test: ## Run unit tests
@@ -82,12 +87,18 @@ tidy: ## Tidy go.mod / go.sum
 # "internal" is a claim about the SDK, so it is only earned by a call site inside
 # the SDK's library packages. Execute/QueryToken/SecretKey/StartTokenAutoRefresh
 # have one (quote/quote_client.go, client/http_client.go, trade/trade_client.go).
-# ExecuteRaw, RefreshToken and SetCurrentToken do NOT, and are therefore
-# "not-used" like the user-facing escape hatches they are: ExecuteRaw has zero
-# callers at all, and RefreshToken/SetCurrentToken are called only from
-# examples/manual_test/ and cmd/integ_token_refresh/. Those are example
-# programs that ship inside the module, not code the library runs, so labelling
-# them "internal" would assert something the SDK source does not support.
+# ExecuteRaw does NOT, and is therefore "not-used" like the user-facing escape
+# hatch it is: it has zero callers at all, inside or outside the module. The
+# other three methods that once sat here as "not-used" — RefreshToken,
+# SetCurrentToken and GetAccountSubscriptions — are now reached, from
+# cmd/token. They were "not-used" rather than "internal" for as long as they
+# were uncovered, because labelling them "internal" would assert something the
+# SDK source does not support: nothing in the SDK's own library packages calls
+# them, only the example programs in examples/manual_test/ and
+# cmd/integ_token_refresh/. That is still true of the SDK, and is still why
+# labelling them "internal" would be wrong if they ever became uncovered again;
+# but a covered method carries no allow-list line, so the question no longer
+# arises for them.
 #
 # Scanned: the four client types the SDK ships — QuoteClient 78, TradeClient 39,
 # PushClient 34, HttpClient 8 = 159. The receiver pattern is deliberately
@@ -169,8 +180,7 @@ coverage-check: ## Fail unless the uncovered SDK methods are exactly the allow-l
 	         CancelSegmentFund:mutating TransferPosition:mutating \
 	         OptionExerciseSubmit:mutating OptionExerciseCancel:mutating \
 	         SetSecretKey:not-a-call \
-	         GetAccountSubscriptions:not-used \
-	         ExecuteRaw:not-used RefreshToken:not-used SetCurrentToken:not-used \
+	         ExecuteRaw:not-used \
 	         Execute:internal QueryToken:internal \
 	         SecretKey:internal \
 	         StartTokenAutoRefresh:internal; do echo "$$e"; done > $$tmp/allowed; \

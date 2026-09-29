@@ -149,8 +149,8 @@ changing a handler signature, which is exactly the review signal you want.
 `cmd/trade/dispatch_test.go` pins this down — see
 [Tests](#tests-for-the-write-gate).
 
-The six read-only commands (`quote`, `options`, `futures`, `reference`,
-`corporate`, `push`) do not participate in the gate at all, and that is
+The seven read-only commands (`quote`, `options`, `futures`, `reference`,
+`corporate`, `push`, `token`) do not participate in the gate at all, and that is
 deliberate rather than an oversight. Four of them — `options`, `futures`,
 `reference`, `corporate` — build their SDK client through `internal/rocli`,
 which only ever calls `Session.Quote()`. `cmd/quote` skips `rocli` too and
@@ -168,6 +168,14 @@ setup, subscribes and unsubscribes. A test parses the package's own source and
 fails if `openapi-go-sdk/trade` or any of `PlaceOrder`, `ModifyOrder`,
 `CancelOrder`, `PreviewOrder`, `NewTradeClient` or `TradeClient` appears in an
 import or an identifier.
+
+`cmd/token` is the same shape as `cmd/push` and for the same reason: it
+imports no trade package, and the `tokenClient` and `subClient` interfaces it
+declares expose only the token and local-subscription methods. The same source
+check covers it. Note that `-set` on that command deliberately does bypass one
+defence — the clearing of the SDK's discovered token file — which is an
+authentication choice an operator makes on purpose, not an order-write path, and
+which is stated on stderr before the value is used.
 
 So there is no trade client in any of their processes, and no flag combination
 can make them write. The gate logic itself is unchanged by the read-only
@@ -1143,13 +1151,13 @@ this API. This section is the evidence for all three.
 
 The SDK ships **four** client types, and the check covers all of them: **159**
 exported methods — **78** on `QuoteClient`, **39** on `TradeClient`, **34** on
-`PushClient`, **8** on `HttpClient`. This project references **137** of them,
-leaving **22** uncovered, and `make coverage-check` fails the build if that set
-is not *exactly* these twenty-two, so the number cannot drift quietly:
+`PushClient`, **8** on `HttpClient`. This project references **140** of them,
+leaving **19** uncovered, and `make coverage-check` fails the build if that set
+is not *exactly* these nineteen, so the number cannot drift quietly:
 
 ```console
 $ make coverage-check
-sdk coverage: 137/159 methods covered, 22 uncovered
+sdk coverage: 140/159 methods covered, 19 uncovered
 uncovered set matches the allow-list:
   GetBrief:deprecated
   GetBars:deprecated
@@ -1165,10 +1173,7 @@ uncovered set matches the allow-list:
   OptionExerciseSubmit:mutating
   OptionExerciseCancel:mutating
   SetSecretKey:not-a-call
-  GetAccountSubscriptions:not-used
   ExecuteRaw:not-used
-  RefreshToken:not-used
-  SetCurrentToken:not-used
   Execute:internal
   QueryToken:internal
   SecretKey:internal
@@ -1179,12 +1184,12 @@ uncovered set matches the allow-list:
 |---|---|---|---|
 | `QuoteClient` | 78 | 71 | 7 |
 | `TradeClient` | 39 | 32 | 7 |
-| `PushClient` | 34 | 33 | 1 |
-| `HttpClient` | 8 | 1 | 7 |
-| **All four** | **159** | **137** | **22** |
+| `PushClient` | 34 | 34 | 0 |
+| `HttpClient` | 8 | 3 | 5 |
+| **All four** | **159** | **140** | **19** |
 
 Read the `HttpClient` row with the caveat in
-[the `Close` false positive](#the-close-false-positive) below: the one method
+[the `Close` false positive](#the-close-false-positive) below: one of the three
 counted as covered there is not evidence of anything.
 
 #### History — the earlier 103 / 117 figure
@@ -1192,18 +1197,18 @@ counted as covered there is not evidence of anything.
 **This section is history, not the current claim.** Before the check was widened
 from two client types to four, the denominator was the `QuoteClient` +
 `TradeClient` subset and the figure was **103 / 117 with 14 uncovered**. Those
-fourteen are a strict subset of the twenty-two above — the check did not lose
-gaps when it widened, it gained eight. Kept because the progression is the
+fourteen are a strict subset of the nineteen above — the check did not lose
+gaps when it widened, it gained five. Kept because the progression is the
 evidence for how the number moved:
 
 | | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` | `-op addon-entitlement` | Widened to all four clients |
 |---|---|---|---|---|---|
-| Overall | 13 / 117 | 79 / 117 | 102 / 117 | 103 / 117 | **137 / 159** |
+| Overall | 13 / 117 | 79 / 117 | 102 / 117 | 103 / 117 | **140 / 159** |
 | `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | 70 / 78 | 71 / 78 | **71 / 78** |
 | `TradeClient` | 8 / 39 | 8 / 39 | 32 / 39 | 32 / 39 | **32 / 39** |
-| `PushClient` | — | — | — | — | **33 / 34** |
-| `HttpClient` | — | — | — | — | **1 / 8** |
-| Uncovered | 104 | 38 | 15 | 14 | **22** |
+| `PushClient` | — | — | — | — | **34 / 34** |
+| `HttpClient` | — | — | — | — | **3 / 8** |
+| Uncovered | 104 | 38 | 15 | 14 | **19** |
 
 (The first three columns are commits `0ebcbf4`, `83e12a6` and `7239660`. They
 are re-derivable with the two-client loop in the git history of this section,
@@ -1293,15 +1298,10 @@ So: of the 7 uncovered trade methods, **6 write and 1 is not a call at all**.
 None of them is a read that was skipped for being awkward — the read side of
 every one of those operations is now covered by `reads.go`.
 
-**1 on `PushClient`:**
+**0 on `PushClient`:** all 34 are covered. `cmd/token` supplies the last one,
+`GetAccountSubscriptions`.
 
-- **`GetAccountSubscriptions`** — *not-used*, and for the ordinary reason: it is
-  a user-facing escape hatch this repo has not reached yet. It returns which
-  subject types the account currently holds subscriptions for. This project
-  subscribes 12 feeds through its own flag and has no use for the query, so it
-  is simply not called yet. It is `not-used`, **not** `internal` — see below.
-
-**7 on `HttpClient`:** the interesting ones, because `HttpClient` is the SDK's
+**5 on `HttpClient`:** the interesting ones, because `HttpClient` is the SDK's
 own transport rather than an endpoint client, and the reason vocabulary splits.
 
 #### The reason vocabulary, and the `internal` vs `not-used` distinction
@@ -1314,7 +1314,7 @@ to confuse are not interchangeable:
 | `deprecated` | A non-deprecated replacement is what the commands call | 6 |
 | `mutating` | Would change account state, so it needs the write gate | 7 |
 | `not-a-call` | Not an API call at all — a local assignment | 1 |
-| `not-used` | A user-facing escape hatch this repo has not reached yet | 4 |
+| `not-used` | A user-facing escape hatch this repo has not reached yet | 1 |
 | `internal` | **A call site exists inside the SDK's own library packages** | 4 |
 
 **`internal` is a claim about the SDK, not about this repo.** It is the only
@@ -1365,9 +1365,18 @@ the distinction is the whole point:
 
 **So the SDK does not call any of `ExecuteRaw`, `RefreshToken` or
 `SetCurrentToken`.** They are the same species of thing — a user-facing escape
-hatch this repo has not reached yet — and labelling them `internal` would assert
-something the SDK source does not support. The same word would have been wrong
-for `GetAccountSubscriptions` for a different reason: it has no caller anywhere,
+hatch — and labelling any of them `internal` would assert something the SDK
+source does not support.
+
+`cmd/token` now calls all three, so they are covered rather than justified.
+That is a statement about *this repo*, and it is worth being precise about what
+it did and did not change: `internal` was never the right word for any of them
+and still is not. The distinction mattered while they were uncovered, because an
+uncovered method needs a reason and `internal` was available to misuse. A
+covered method carries no allow-list line at all, so the question no longer
+arises — but the fact about the SDK above is still the fact, and would still
+settle it if they ever became uncovered again. `GetAccountSubscriptions` is the
+same case with an even stronger claim behind it: it has no caller anywhere,
 inside or outside the module.
 
 #### The `Close` false positive
@@ -1509,11 +1518,12 @@ make run-options   ARGS="-op expiration"
 make run-futures   ARGS="-op exchange"
 make run-reference ARGS="-op stock-details -symbols AAPL"
 make run-corporate ARGS="-op dividend -symbols AAPL -market US"
+make run-token     ARGS="-show"
 ```
 
 `make verify` is the whole CI set, and its last step is the one worth knowing
 about: `coverage-check` does not merely *count* coverage, it asserts the
-uncovered set is **exactly** the twenty-two methods listed above, so a new gap
+uncovered set is **exactly** the nineteen methods listed above, so a new gap
 fails and so does a method that quietly gained a call site.
 
 ```console
@@ -1522,8 +1532,8 @@ gofmt: clean
 /usr/local/go/bin/go vet ./...
 /usr/local/go/bin/go test -race ./...
 …
-built: quote trade push options futures reference corporate
-sdk coverage: 137/159 methods covered, 22 uncovered
+built: quote trade push options futures reference corporate token
+sdk coverage: 140/159 methods covered, 19 uncovered
 uncovered set matches the allow-list:
   GetBrief:deprecated
   GetBars:deprecated
@@ -1539,10 +1549,7 @@ uncovered set matches the allow-list:
   OptionExerciseSubmit:mutating
   OptionExerciseCancel:mutating
   SetSecretKey:not-a-call
-  GetAccountSubscriptions:not-used
   ExecuteRaw:not-used
-  RefreshToken:not-used
-  SetCurrentToken:not-used
   Execute:internal
   QueryToken:internal
   SecretKey:internal

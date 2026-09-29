@@ -196,3 +196,31 @@ The pre-flight half matters as much as the shutdown half. A command-line combina
 
 - **WHEN** a flag combination is refused before the run starts
 - **THEN** the message is about the flags, so a typo is diagnosable without a network or credentials
+
+### Requirement: A local record is not presented as a server answer
+
+A report drawn from a process's own in-memory bookkeeping SHALL be labelled as local, SHALL say that the server was not asked, and SHALL NOT be phrased so that an empty result reads as a statement about the account. The label SHALL appear before the result rather than after it.
+
+#### Scenario: The locality is stated before the list
+
+- **WHEN** a run reports a subscription record
+- **THEN** the words indicating it is local and that the server was not asked are printed before any subject, so an empty list cannot be read as an answer about the account
+
+#### Scenario: An empty local record says why it is empty
+
+- **WHEN** the local record is empty
+- **THEN** the output says that a record is made only by a subscribe call and points at the command that makes them
+
+### Requirement: A token rotation has not been observed to succeed
+
+A command that asks the vendor's gateway for a new token SHALL be documented as unverified beyond being wired, because this project has never made an authenticated request. It SHALL NOT be described as working against a live account, and it SHALL be called in a way that writes the new token to no file.
+
+#### Scenario: The rotation is documented as unverified
+
+- **WHEN** an artifact describes the token refresh path
+- **THEN** it states that no successful authenticated response has been observed for it
+
+#### Scenario: The rotation persists nothing
+
+- **WHEN** the refresh is invoked
+- **THEN** it is invoked with no token manager, so the new token is held in memory only and no file is written
