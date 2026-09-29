@@ -72,3 +72,127 @@ An artifact that records endpoint invocations from an earlier run SHALL label th
 
 - **WHEN** an artifact reports a historical invocation count
 - **THEN** it says the record cannot simply be re-run on demand
+
+### Requirement: Nothing in this project has been verified against live data
+
+No artifact of this project SHALL state or imply that any command has been run successfully against the provider with working credentials. Where an artifact shows output shape, a sample, or a field value, it SHALL say whether that material comes from the code and the interface contract or from a live run, and this project SHALL be recorded as having the former only.
+
+#### Scenario: A sample is attributed to its origin
+
+- **WHEN** an artifact shows sample output
+- **THEN** it says the material is the shape the code emits, and does not present it as a transcript of a successful live call
+
+#### Scenario: A behaviour is not described as observed live
+
+- **WHEN** an artifact describes what a command does against the provider
+- **THEN** it does not claim the behaviour was observed with working credentials, because nothing in this project has been
+
+#### Scenario: Per-payload detail is marked as unverified
+
+- **WHEN** an artifact describes the content of a real-time data frame
+- **THEN** it records that the field values come from the interface contract and have not been seen from the provider
+
+### Requirement: A subscription is not confirmed until data arrives
+
+The real-time feed's client library SHALL expose no path by which a subscription request is acknowledged. A successful return from a subscribe call SHALL mean only that the request was written to the connection, and SHALL NOT be presented as evidence that the server accepted it. Any claim that a subscription is live SHALL be supported by received data frames for that feed.
+
+#### Scenario: A nil return is not described as an acceptance
+
+- **WHEN** an artifact describes the result of a subscribe call
+- **THEN** it states that success means only that the request was sent, and does not claim the server accepted the subscription
+
+#### Scenario: Acceptance is claimed only from data
+
+- **WHEN** an artifact states that a subscription is live
+- **THEN** it points at received data frames for that feed as the evidence, never at the subscribe call's return value
+
+#### Scenario: The absence of an error path is stated
+
+- **WHEN** an artifact explains why a refusal is hard to see
+- **THEN** it records that the client library acts on connection, heartbeat, data, error and disconnection messages only, and therefore discards the server's subscription acknowledgement
+
+### Requirement: A silent feed is reported rather than assumed healthy
+
+Because a refused subscription produces neither an error nor a callback, silence is the only signal a refusal leaves. A command SHALL therefore count what arrives per feed and report, at the end of a run, which feeds delivered nothing and why that is often expected. A run with a silent feed SHALL NOT be reported as a fully successful subscription.
+
+#### Scenario: Arrivals are counted per feed
+
+- **WHEN** a run receives data frames
+- **THEN** the command attributes them to the feeds those frames can serve, and reports a per-feed count at the end of the run
+
+#### Scenario: A silent feed is named, with its likeliest reason
+
+- **WHEN** a feed delivered nothing during the run
+- **THEN** the report names that feed and gives the reason it is most likely to have been quiet, rather than leaving the absence unexplained
+
+#### Scenario: A quiet feed is a warning, not a failure
+
+- **WHEN** a feed delivered nothing during the run
+- **THEN** the report is a warning rather than an error, because a closed market and a refused subscription are indistinguishable from the client side
+
+#### Scenario: Over-counting is preferred to under-counting
+
+- **WHEN** one data frame could belong to more than one subscribed feed
+- **THEN** the command credits every feed that frame can serve, because a false negative would raise a warning about a feed that is plainly delivering
+
+### Requirement: An undocumented vendor format is passed through and flagged
+
+Where the vendor does not document a required format, a command SHALL pass the user-supplied value through unchanged rather than guessing, transforming or validating it against an undocumented assumption. It SHALL warn when no data arrives and name the candidate forms a user can try. A subscription on such a feed SHALL NOT be presented as verified.
+
+#### Scenario: The user's value is not rewritten
+
+- **WHEN** a required symbol format is not documented by the vendor
+- **THEN** the value the user supplied is sent exactly as given, with no substitution or normalisation applied to it
+
+#### Scenario: The undocumented format is named when nothing arrives
+
+- **WHEN** a feed documented this way delivers no data
+- **THEN** the run says the format is undocumented and lists the candidate forms to try, rather than reporting a bare failure
+
+#### Scenario: The feed is not claimed as working
+
+- **WHEN** an artifact describes a subscription on an undocumented-format feed
+- **THEN** it does not state that the subscription is confirmed, because which form the provider accepts has not been established
+
+### Requirement: The unsubscribe cooldown policy is a refusal, not a warning
+
+Where the vendor requires a minimum interval between a subscription and its cancellation, a command SHALL refuse to send a cancellation it knows falls inside that interval, and SHALL say that nothing was sent and why. It SHALL NOT send the request regardless and merely warn that it will probably be ignored. A run's default configuration SHALL NOT request a cancellation at all.
+
+#### Scenario: Cancellation is off unless asked for
+
+- **WHEN** a command starts with default flags
+- **THEN** no cancellation is sent, because a run that ends soon after subscribing would fall inside the interval anyway
+
+#### Scenario: A cancellation inside the interval is not sent
+
+- **WHEN** a run ends less than the required interval after its last subscription
+- **THEN** nothing is written, and the run says nothing was sent and why, rather than reporting a clean-up
+
+#### Scenario: A warning instead of a refusal is not the policy
+
+- **WHEN** the required interval has not elapsed
+- **THEN** the command does not send the request and then warn that the server will probably ignore it, because a warning after a silent send reads as a clean-up that happened
+
+#### Scenario: A permitted cancellation is sent before the connection closes
+
+- **WHEN** the required interval has elapsed
+- **THEN** the cancellations are written while the connection is still open, and before it is closed, because a closed connection has nothing left to write to
+
+### Requirement: An impossible cancellation is refused before any connection is made
+
+The pre-flight half matters as much as the shutdown half. A command-line combination that could not possibly work SHALL be refused before any connection is opened, so the user sees an error about the flags rather than a clean-up that did not happen.
+
+#### Scenario: An impossible flag combination is refused up front
+
+- **WHEN** a run requests cancellation with a planned duration shorter than the required interval
+- **THEN** the command exits before opening any connection, with a message naming both flags and the required interval
+
+#### Scenario: A run that cannot tell its own length is not refused up front
+
+- **WHEN** a run requests cancellation and has no planned end, continuing until interrupted
+- **THEN** the command proceeds, because the elapsed interval cannot be judged before the run happens
+
+#### Scenario: A flag problem is not reported as a connection problem
+
+- **WHEN** a flag combination is refused before the run starts
+- **THEN** the message is about the flags, so a typo is diagnosable without a network or credentials

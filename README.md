@@ -13,7 +13,7 @@ Three commands, plus four read-only data commands:
 | `cmd/reference` | Symbol lists and names, stock details, fundamentals, financial series, FX, short interest, trading calendar, market scanner, industries | **No** — read-only |
 | `cmd/corporate` | Dividends, splits, earnings calendar, IPOs, symbol changes, delistings, capital flow, HK warrants, fund NAVs | **No** — read-only |
 | `cmd/trade` | 29 read commands — account state, orders, contracts, funds, transfers, option exercise — plus place / modify / cancel behind a hard gate | **Yes**, behind two independent gates |
-| `cmd/push` | Real-time push feed (TCP + TLS + Protobuf): quotes, ticks, depth, order/position/asset updates | **No** — read-only |
+| `cmd/push` | Real-time push feed (TCP + TLS + Protobuf): quotes, ticks, depth, k-lines, crypto, whole-market and rankings, order/position/asset/fill updates | **No** — read-only |
 
 Only `cmd/trade` has a write path at all. The other six binaries never construct a
 trade client, so there is no code in them that *could* place an order.
@@ -55,7 +55,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (7 packages, 337 cases — see [Test suite](#test-suite)), all seven
+  tests pass (8 packages, 592 cases — see [Test suite](#test-suite)), all seven
   binaries run, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -151,10 +151,27 @@ changing a handler signature, which is exactly the review signal you want.
 
 The six read-only commands (`quote`, `options`, `futures`, `reference`,
 `corporate`, `push`) do not participate in the gate at all, and that is
-deliberate rather than an oversight: they build their SDK client through
-`internal/rocli`, which only ever calls `Session.Quote()`. There is no trade
-client in their process, so no flag combination can make them write. The gate
-logic itself is unchanged by the read-only commands.
+deliberate rather than an oversight. Four of them — `options`, `futures`,
+`reference`, `corporate` — build their SDK client through `internal/rocli`,
+which only ever calls `Session.Quote()`. `cmd/quote` skips `rocli` too and
+builds its own session with `tigersdk.NewSession`, then calls `Session.Quote()`
+directly.
+
+`cmd/push` is the odd one out and does **not** go through `rocli`: it never
+imports it. It builds its client by calling `tigersdk.Push`, which returns a
+`*sdkpush.PushClient` value from the SDK's own `push` package — constructed by
+`sdkpush.NewPushClient` against the same re-asserted `*sdkconfig.ClientConfig`
+every other client is built from, so the credential defence is identical. What
+makes it safe is not `rocli`: it is that `cmd/push` does not import the SDK's
+`trade` package at all, and its `pushClient` interface exposes only connection
+setup, subscribes and unsubscribes. A test parses the package's own source and
+fails if `openapi-go-sdk/trade` or any of `PlaceOrder`, `ModifyOrder`,
+`CancelOrder`, `PreviewOrder`, `NewTradeClient` or `TradeClient` appears in an
+import or an identifier.
+
+So there is no trade client in any of their processes, and no flag combination
+can make them write. The gate logic itself is unchanged by the read-only
+commands.
 
 `cmd/trade` also prints a warning banner whenever dry-run is disabled:
 
@@ -612,9 +629,267 @@ go run ./cmd/push -subscribe account -account -duration 5m
 
 # Several feeds at once
 go run ./cmd/push -symbols AAPL -subscribe quote,depth -v
+
+# Option quotes. OCC symbols carry padding spaces, so quote the whole argument
+go run ./cmd/push -subscribe option -symbols "AAPL  260619C00200000" -duration 1m
+
+# Whole-market quote stream — HK only, and no symbols
+go run ./cmd/push -subscribe market -market HK -duration 2m
+
+# US stock ranking, two indicators
+go run ./cmd/push -subscribe stock_top -market US -indicators changeRate,volume
+
+# Crypto. The symbol form is undocumented, so pass what you have and read the
+# delivery report if nothing arrives
+go run ./cmd/push -subscribe crypto -symbols BTC -duration 1m
+
+# Unsubscribing. Needs at least a minute of runtime, and refuses a shorter one
+go run ./cmd/push -subscribe quote -unsubscribe -duration 2m
 ```
 
-Feeds: `quote`, `tick`, `depth`, `account`. `Ctrl-C` exits cleanly.
+`Ctrl-C` exits cleanly. `-h` works with no credentials.
+
+#### Feeds
+
+`-subscribe` takes a comma-separated list. Values are case-folded, trimmed,
+de-duplicated and kept in the order given; a blank segment is dropped, and a
+list that selects nothing is an error that names the valid set.
+
+| Feed | SDK method | What arrives |
+|---|---|---|
+| `quote` | `SubscribeQuote` | `[QUOTE]` |
+| `tick` | `SubscribeTick` | `[TICK]`, one line per tick |
+| `depth` | `SubscribeDepth` | `[DEPTH]`, up to five levels a side |
+| `option` | `SubscribeOption` | `[OPTION]` |
+| `future` | `SubscribeFuture` | `[FUTURE]` |
+| `kline` | `SubscribeKline` | `[KLINE]`, one minute bar |
+| `cc` (alias `crypto`) | `SubscribeCc` | `[QUOTE]` — the payload is the same as a quote's |
+| `market` | `SubscribeMarket` | `[QUOTE]` — the whole HK market |
+| `stock_top` | `SubscribeStockTop` | `[STOPTOP]`, grouped by indicator |
+| `option_top` | `SubscribeOptionTop` | `[OPTTOP]`, ranked items and big orders |
+| `account` | `SubscribeOrder` + `SubscribePosition` + `SubscribeAsset` | `[ORDER]`, `[POS]`, `[ASSET]` |
+| `transaction` | `SubscribeTransaction` | `[FILL]` |
+
+Two entries are not one method each, and both are deliberate:
+
+- **`account` is a composite of three subscribes**, and it also pulls in
+  `transaction`, because a fill is only interpretable next to the order that
+  fills. So `-subscribe account` and `-subscribe account,transaction` are the
+  same request, and the `-account` flag means exactly the same thing. The three
+  account subscribes are sent with an empty account string, which means "the
+  account from your config" — the account never travels on the wire from this
+  command.
+- **`crypto` is an alias for `cc`**, which is the SDK's own subject-type name.
+  `crypto` is the word people reach for, so it is accepted; `cc` is what the
+  dictionary stores.
+
+`market` is a whole-market *quote* stream, not market status. The wire sends
+`dataType=Quote` with the market field set and no symbols, so its payloads come
+back through the same callback as a per-symbol quote and print as `[QUOTE]`.
+The SDK's docstring calls this feed "market status"; the wire is unambiguous and
+the command follows the wire, so nothing is labelled "market status" anywhere.
+
+`cc` and `market` are also why the delivery counts can over-count — see below.
+
+#### Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `-subscribe` | `quote` | Comma-separated feeds; the help lists the accepted spellings |
+| `-symbols` | `AAPL,MSFT` | Comma-separated symbols, upper-cased. Split on commas only, so OCC padding survives |
+| `-account` | off | Subscribe the account feeds; implies `-subscribe account` |
+| `-market` | empty | `HK` for `market`; `US`\|`HK` for `stock_top`; `US` for `option_top`. Required by those three, and refused for any other market |
+| `-indicators` | `volume,amount` | For `stock_top` / `option_top`. Case-folded, so `CHANGERATE` reaches the server as `changeRate` |
+| `-unsubscribe` | **off** | Unsubscribe before disconnecting — see the cooldown below |
+| `-duration` | `30s` | How long to listen; `0` means until `Ctrl-C` |
+| `-config` | — | YAML config path (also `$TIGER_CONFIG`) |
+| `-v` | — | Debug logging |
+
+`stock_top` accepts `changeRate`, `changeRate5Min`, `turnoverRate`, `amount`,
+`volume`, `amplitude`; `option_top` accepts `bigOrder`, `volume`, `amount`,
+`openInt`. The two sets overlap only on `volume` and `amount`, which is why
+those two are the default — one default is then valid for both feeds. An
+indicator from the wrong feed is refused with a message naming the right set.
+That catches the mistake most likely to be made here: the SDK's own tests
+(`push/coverage_extra_test.go`) subscribe with `top_gainer`, `top_loser`,
+`top_volume` and `top_oi`, so those are the values a reader copying out of the
+SDK source will reach for, and they are not in the sets this command accepts.
+
+**Those two indicator lists are not verified against the live server.** They
+come from Tiger's published indicator names, not from the SDK — the SDK's own
+docstrings for the two ranking subscribes take a list of strings and enumerate
+nothing — and this project has never run them against Tiger. If a ranking feed
+delivers nothing, the delivery report is where that would show up.
+
+Every flag is validated **before** the config is loaded and before any
+connection is made, so a typo reports itself as a typo rather than as a missing
+credential.
+
+#### Delivery accounting, and why a subscribe that returns nil proves nothing
+
+**The Go SDK exposes no subscribe-acknowledgement path.** A nil error from any
+`Subscribe*` means only that the frame was written to the socket. The protocol
+has an acknowledgement, but the SDK discards it: `handleMessage` in the SDK's
+push client acts only on `CONNECTED`, `HEARTBEAT`, `MESSAGE`, `ERROR` and
+`DISCONNECT`. A subscription the server refuses therefore produces neither an
+error nor a callback — it simply never delivers, and the only evidence is that
+nothing arrived.
+
+So this command counts arrivals in the callbacks and reports the verdict at
+shutdown, per feed. Counting starts *before* the first subscribe, because a
+silent feed is the only signal a refusal leaves. The subscribe line says
+`sent`, never `subscribed`:
+
+```
+15:04:05 INFO  subscribe sent: feed=quote symbols=[AAPL MSFT] market= indicators=[volume amount] (delivery is confirmed below, not by this line)
+15:04:05 INFO  push connected
+15:04:05 INFO  listening for 30s (Ctrl-C to stop early)
+[QUOTE] AAPL       last=187.2500 bid=187.2400/100 ask=187.2600/200 vol=1234 status=Trading
+```
+
+and at the end:
+
+```
+15:04:35 INFO  delivery report: quote, depth
+15:04:35 INFO    delivered: feed=quote messages=412
+15:04:35 WARN    NO DATA: feed=depth — the server may have refused it (business code 3xxx), the per-data-type subscription quota may be exhausted (code 4), or the market may be closed
+```
+
+Payload lines go to **stdout**; log lines, including the delivery report, go to
+**stderr**. So `go run ./cmd/push … > ticks.txt` keeps the data and leaves the
+accounting on your terminal.
+
+A `NO DATA` line is a warning, never an error: a closed market and a refused
+subscription are indistinguishable from the client side, so the hint names all
+three causes the SDK cannot tell apart — a refusal carrying a business code
+(`3xxx`), a per-data-type subscription quota (code 4, "you can only subscribe to
+xxx symbols"), and a closed market — with the feed-specific reason first,
+because that is the one that is actually likely. A quiet `account` feed means
+nothing happened on the account; a quiet `stock_top` means it is outside market
+hours (and that US pre/post sessions push only `changeRate` and
+`changeRate5Min`).
+
+**The counts over-count on purpose.** The wire does not always say which
+subscription a payload belongs to: `cc` and `market` both reuse `QuoteData` and
+arrive through the quote callback, so one quote credits `quote`, `cc` and
+`market` alike when all three are subscribed. The opposite error would raise a
+`NO DATA` warning about a feed that is plainly delivering — and a warning
+nobody can act on is worse than a count that is too generous.
+
+#### Output shapes
+
+The lines below are what the renderers emit, read off the format strings and
+pinned by tests. **They are not a transcript from a live run** — nothing in this
+repo has been run against Tiger with working credentials, so no sample here can
+be. What is verifiable is the shape, and the shape is the same shape you would
+get.
+
+```
+[QUOTE] AAPL       last=187.2500 bid=187.2400/100 ask=187.2600/200 vol=1234 status=Trading
+[OPTION] AAPL      last=1.4250 bid=1.4200/50 ask=1.4300/60 vol=812 status=Trading
+[FUTURE] ES        last=5480.2500 bid=5479.7500/3 ask=5480.5000/4 vol=145220 status=Trading
+[TICK]  AAPL       sn=41822 price=187.2600 vol=100 type=+ cond=Regular venue=NASDAQ
+```
+
+`cc` and `market` print as `[QUOTE]` — the payload is identical and the wire
+does not distinguish them. That is also why neither is ever labelled `[CC]` or
+`[MARKET]`: there is no field in the payload that would make the label honest.
+
+The book arrives as parallel slices rather than a list of structs, so it renders
+as a block, truncated at five levels a side with the remainder counted:
+
+```
+[DEPTH] AAPL
+  bid 7 level(s):
+          187.2400  vol=100       orders=4
+          187.2300  vol=250       orders=11
+          ...
+          ... 4 more level(s)
+  ask 5 level(s):
+          187.2600  vol=200       orders=8
+```
+
+A missing level count prints `orders=-` rather than `0`, because "the server
+sent no count" and "the count is zero" are different facts.
+
+```
+[KLINE] AAPL       o=187.1000 h=187.3100 l=186.9800 c=187.2500 avg=187.1400 vol=48310 n=274 amt=9045120.75
+```
+
+Rankings are grouped by indicator, because the server groups the rows that way
+and the name is a group header, not a per-row field. Option rows carry
+symbol, expiry, strike and right in separate fields, reassembled into one cell
+so a row can be matched against the symbol you subscribed to:
+
+```
+[STOPTOP] market=US indicator=changeRate rows=10
+           NVDA       last=141.3200 value=8.4200
+           ...
+           ... 4 more row(s)
+[OPTTOP] market=US indicator=volume rows=10 big_orders=2
+          AAPL 20260619 200 CALL      vol=10.00 amt=2000.00 oi=500.00 vol/oi=0.0200
+          AAPL 20260619 200 PUT       BUY  vol=1500.00 price=3.5000 amt=5250.00
+```
+
+The account shapes:
+
+```
+[ORDER] id=88123 AAPL       BUY LMT 100/200 @187.2500 status=FILLED
+[ORDER] id=88124 AAPL       BUY LMT 0/100 @187.2500 status=REJECTED err=insufficient funds
+[POS]   AAPL       qty=100 avg_cost=185.1200 mkt_value=18725.00 unreal_pnl=213.00
+[ASSET] account=DU1234567 ccy=USD cash=125340.55 net_liq=402118.90 buying_power=201059.45
+[FILL]  order_id=88123 AAPL       100 @187.2500
+```
+
+A server error message rides on the `[ORDER]` line as an `err=` suffix, and
+appears on no other line because no other line has somewhere to put it.
+
+#### The one-minute unsubscribe cooldown
+
+The vendor requires at least a minute between the last subscribe and any
+unsubscribe, and a run that unsubscribes at shutdown is always inside that
+window unless it ran long enough. `-unsubscribe` is therefore **off by
+default**, and the code refuses rather than hopes:
+
+- `checkUnsubscribePlan` rejects `-unsubscribe -duration <1m` **before any
+  connection is made**, with a message naming both flags. `-duration 0` is
+  allowed, because a run until `Ctrl-C` cannot be judged up front.
+- `sendUnsubscribe` re-checks the elapsed time at shutdown. If the run ended
+  inside the cooldown, **nothing is sent** and the refusal is logged loudly:
+
+  ```
+  15:04:35 WARN  not unsubscribing: only 29.997s since the last subscribe, and Tiger rejects an unsubscribe inside the 1m0s cooldown (nothing was sent; the connection is simply closing)
+  ```
+
+  If the cooldown has passed, the unsubscribes are sent, in the same order as
+  the subscribes, and always before the disconnect — after the socket closes
+  there is nothing to write to.
+
+The unsubscribes mirror the API's asymmetry rather than smoothing it over: the
+seven market-data ones take the symbols to drop, the two ranking ones take
+`(market, indicators)`, and the four account ones —
+`UnsubscribeOrder`, `UnsubscribePosition`, `UnsubscribeAsset`,
+`UnsubscribeTransaction` — take **no arguments at all**, because the API can
+only drop the whole subject, never one part of it.
+
+The alternative to refusing was to send the request anyway and warn that the
+server will probably ignore it. That was rejected: a rejected unsubscribe
+leaves this connection's subscriptions exactly where they were, Tiger allows
+one push connection per Tiger ID, and a second connection is a way to make
+things worse. Silence plus a warning reads as "it worked"; an explicit "not
+sent, and here is why" cannot.
+
+#### Two vendor-side things the code does not smooth over
+
+- **The crypto symbol format is undocumented and Tiger's own documents
+  disagree** — `BTC`, `BTC.USD`, `BTCUSD` and `BTC/USD` all appear. The command
+  does not guess and does not rewrite: the symbols go out exactly as supplied,
+  and if nothing arrives the `cc` hint names the four forms to try. Crypto
+  subscription is therefore **unverified** — this repo has never confirmed which
+  form, if any, the server accepts.
+- **One push connection per Tiger ID.** A second connection kicks the first,
+  which arrives as a kickout callback, and the command logs that as an error
+  because it is the one event an operator has to act on.
 
 ---
 
@@ -824,7 +1099,10 @@ tiger-go-demo/
 │   │   ├── main.go         flag set, write gate, the 3 write paths
 │   │   ├── reads.go        the 29 read-only endpoints
 │   │   └── dispatch_test.go  reads bypass the gate; writes do not
-│   └── push/main.go        real-time push subscriptions
+│   └── push/
+│       ├── main.go         flags, the 12 feeds / 13 spellings, dispatch, delivery accounting
+│       ├── output.go       the per-payload renderers
+│       └── main_test.go    vocabulary-vs-dispatch drift, cooldown policy, output shapes
 ├── internal/
 │   ├── config/             env + YAML loader, validation, redaction, write gate
 │   │   └── config_test.go
@@ -849,6 +1127,9 @@ tiger-go-demo/
 flag registration, credential loading, session setup, table formatting and the
 exit-code convention, so each command file is just a list of endpoints. It
 exposes no trade client, which is why those commands cannot place an order.
+`cmd/quote` and `cmd/push` do not use it — `cmd/quote` builds its own session,
+and `cmd/push` builds a push client directly; see [Safety model](#safety-model)
+for why neither can write.
 
 ---
 
@@ -860,30 +1141,80 @@ current figure, that every remaining gap is excluded for a stated structural
 reason rather than forgotten, and that a rejected request is not a mutation in
 this API. This section is the evidence for all three.
 
-Of the SDK's **117** exported client methods (**78** on `QuoteClient`, **39**
-on `TradeClient`), this project now exercises **103**, leaving **14** uncovered —
-and `make coverage-check` fails the build if that set is not *exactly* these
-fourteen, so the number cannot drift quietly:
+The SDK ships **four** client types, and the check covers all of them: **159**
+exported methods — **78** on `QuoteClient`, **39** on `TradeClient`, **34** on
+`PushClient`, **8** on `HttpClient`. This project references **137** of them,
+leaving **22** uncovered, and `make coverage-check` fails the build if that set
+is not *exactly* these twenty-two, so the number cannot drift quietly:
 
 ```console
 $ make coverage-check
-sdk coverage: 103/117 methods covered, 14 uncovered
+sdk coverage: 137/159 methods covered, 22 uncovered
 uncovered set matches the allow-list:
+  GetBrief:deprecated
+  GetBars:deprecated
+  GetBarsByPage:deprecated
+  GetOptionBrief:deprecated
+  GetWarrantBriefs:deprecated
+  GetStockDelayBriefs:deprecated
+  GrabQuotePermission:mutating
+  PlaceForexOrder:mutating
+  TransferSegmentFund:mutating
+  CancelSegmentFund:mutating
+  TransferPosition:mutating
+  OptionExerciseSubmit:mutating
+  OptionExerciseCancel:mutating
+  SetSecretKey:not-a-call
+  GetAccountSubscriptions:not-used
+  ExecuteRaw:not-used
+  RefreshToken:not-used
+  SetCurrentToken:not-used
+  Execute:internal
+  QueryToken:internal
+  SecretKey:internal
+  StartTokenAutoRefresh:internal
 ```
 
-| | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` | Now (`-op addon-entitlement`) |
-|---|---|---|---|---|
-| Overall | 13 / 117 | 79 / 117 | 102 / 117 | **103 / 117** |
-| `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | 70 / 78 | **71 / 78** |
-| `TradeClient` | 8 / 39 | 8 / 39 | 32 / 39 | **32 / 39** |
-| Uncovered | 104 | 38 | 15 | **14** |
+| Client type | Total | Covered | Uncovered |
+|---|---|---|---|
+| `QuoteClient` | 78 | 71 | 7 |
+| `TradeClient` | 39 | 32 | 7 |
+| `PushClient` | 34 | 33 | 1 |
+| `HttpClient` | 8 | 1 | 7 |
+| **All four** | **159** | **137** | **22** |
 
-(The first column is commit `0ebcbf4`, the second `83e12a6`, the third
-`7239660`. All three are re-derivable with the loop below against a
-`git worktree` of the relevant commit — which is how the first two were checked
-when this table was extended.)
+Read the `HttpClient` row with the caveat in
+[the `Close` false positive](#the-close-false-positive) below: the one method
+counted as covered there is not evidence of anything.
 
-You can re-derive the current numbers without trusting this table:
+#### History — the earlier 103 / 117 figure
+
+**This section is history, not the current claim.** Before the check was widened
+from two client types to four, the denominator was the `QuoteClient` +
+`TradeClient` subset and the figure was **103 / 117 with 14 uncovered**. Those
+fourteen are a strict subset of the twenty-two above — the check did not lose
+gaps when it widened, it gained eight. Kept because the progression is the
+evidence for how the number moved:
+
+| | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` | `-op addon-entitlement` | Widened to all four clients |
+|---|---|---|---|---|---|
+| Overall | 13 / 117 | 79 / 117 | 102 / 117 | 103 / 117 | **137 / 159** |
+| `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | 70 / 78 | 71 / 78 | **71 / 78** |
+| `TradeClient` | 8 / 39 | 8 / 39 | 32 / 39 | 32 / 39 | **32 / 39** |
+| `PushClient` | — | — | — | — | **33 / 34** |
+| `HttpClient` | — | — | — | — | **1 / 8** |
+| Uncovered | 104 | 38 | 15 | 14 | **22** |
+
+(The first three columns are commits `0ebcbf4`, `83e12a6` and `7239660`. They
+are re-derivable with the two-client loop in the git history of this section,
+against a `git worktree` of the relevant commit — which is how the first two
+were checked when the table was extended. The last column is a different
+denominator, not a bigger version of the same one: 159 is not 117 plus 42, it
+is 117 plus the 42 methods on `PushClient` and `HttpClient`, 8 of which this
+project leaves uncovered.)
+
+The old two-client derivation loop, kept because it is the one that produced
+those historical columns:
 
 ```console
 $ TG=$(go env GOMODCACHE)/github.com/tigerfintech/openapi-go-sdk@v0.5.2
@@ -893,23 +1224,11 @@ $ for f in quote trade; do
   done > /tmp/methods          # 117 lines
 $ wc -l < /tmp/methods
 117
-$ while read m; do grep -rqE "\.$m\(" cmd/ internal/ || echo "UNCOVERED: $m"; done < /tmp/methods
-UNCOVERED: GetBars
-UNCOVERED: GetBarsByPage
-UNCOVERED: GetBrief
-UNCOVERED: GetOptionBrief
-UNCOVERED: GetStockDelayBriefs
-UNCOVERED: GetWarrantBriefs
-UNCOVERED: GrabQuotePermission
-UNCOVERED: CancelSegmentFund
-UNCOVERED: OptionExerciseCancel
-UNCOVERED: OptionExerciseSubmit
-UNCOVERED: PlaceForexOrder
-UNCOVERED: SetSecretKey
-UNCOVERED: TransferPosition
-UNCOVERED: TransferSegmentFund
-$ # 14 uncovered -> 103 of 117 covered; 7 on each client
 ```
+
+The current one adds the other two types and matches on the receiver pattern
+rather than a hardcoded name — see [how the scan works](#how-the-scan-works)
+for why that second part is load-bearing.
 
 `QuoteClient` went **down** by one, not up, when `reads.go` landed.
 `cmd/reference` used to call `GetStockDelayBriefs`, a deprecated alias, behind a
@@ -919,7 +1238,7 @@ a fix, not a regression, and it is the reason the quote count dropped while the
 overall count rose by 24. `GetAddonEntitlement` then brought the quote count
 back up to where it was, from the other direction.
 
-### What the 14 uncovered methods actually are
+### What the uncovered SDK methods are
 
 **7 on `QuoteClient`:**
 
@@ -974,6 +1293,150 @@ So: of the 7 uncovered trade methods, **6 write and 1 is not a call at all**.
 None of them is a read that was skipped for being awkward — the read side of
 every one of those operations is now covered by `reads.go`.
 
+**1 on `PushClient`:**
+
+- **`GetAccountSubscriptions`** — *not-used*, and for the ordinary reason: it is
+  a user-facing escape hatch this repo has not reached yet. It returns which
+  subject types the account currently holds subscriptions for. This project
+  subscribes 12 feeds through its own flag and has no use for the query, so it
+  is simply not called yet. It is `not-used`, **not** `internal` — see below.
+
+**7 on `HttpClient`:** the interesting ones, because `HttpClient` is the SDK's
+own transport rather than an endpoint client, and the reason vocabulary splits.
+
+#### The reason vocabulary, and the `internal` vs `not-used` distinction
+
+Every allow-list line carries exactly one reason word, and the two that are easy
+to confuse are not interchangeable:
+
+| Reason | What it asserts | On the list |
+|---|---|---|
+| `deprecated` | A non-deprecated replacement is what the commands call | 6 |
+| `mutating` | Would change account state, so it needs the write gate | 7 |
+| `not-a-call` | Not an API call at all — a local assignment | 1 |
+| `not-used` | A user-facing escape hatch this repo has not reached yet | 4 |
+| `internal` | **A call site exists inside the SDK's own library packages** | 4 |
+
+**`internal` is a claim about the SDK, not about this repo.** It is the only
+reason that asserts something the vendor's source has to support, so it is the
+only one that can be checked against the module cache, and it is the reason it
+is easy to get wrong: a caller inside the module is *not* automatically a
+caller inside the library.
+
+Only **four** methods earn it. Each has a call site in a package that ships as
+library code:
+
+| Method | Library call site in `openapi-go-sdk@v0.5.2` |
+|---|---|
+| `Execute` | `quote/quote_client.go` (×3), `client/http_client.go`, `trade/trade_client.go` (×2) |
+| `QueryToken` | `client/http_client.go` (×2) |
+| `SecretKey` | `trade/trade_client.go` |
+| `StartTokenAutoRefresh` | `client/http_client.go` |
+
+The other three methods on `HttpClient` are **`not-used`, not `internal`**, and
+the distinction is the whole point:
+
+- **`ExecuteRaw` has no caller anywhere in the SDK's own code** — zero call
+  sites outside its own test files. It is a raw escape hatch — hand it a method
+  name and a JSON body and it posts them — and no shipped package reaches for
+  it. Check it yourself:
+
+  ```console
+  $ TG=$(go env GOMODCACHE)/github.com/tigerfintech/openapi-go-sdk@v0.5.2
+  $ grep -rn "\.ExecuteRaw(" $TG --include=*.go | grep -v _test.go || echo "no non-test caller"
+  no non-test caller
+  $ grep -rn "func (c \*HttpClient) ExecuteRaw" $TG --include=*.go
+  .../client/http_client.go:300:func (c *HttpClient) ExecuteRaw(apiMethod string, requestJSON string) (string, error) {
+  ```
+
+- **`RefreshToken` and `SetCurrentToken` are called only from example programs
+  that ship inside the module.** `RefreshToken` has exactly one non-test caller,
+  `examples/manual_test/integ_token_and_order.go`; `SetCurrentToken` has
+  exactly one, `cmd/integ_token_refresh/main.go`. Both are programs the SDK's
+  authors ship for a human to run — they are not code the library runs, and
+  nothing in the library's own call graph depends on them.
+
+  ```console
+  $ grep -rn "\.RefreshToken("  $TG --include=*.go | grep -v _test.go
+  .../examples/manual_test/integ_token_and_order.go:84:		if err := hc2.RefreshToken(nil); err != nil {
+  $ grep -rn "\.SetCurrentToken(" $TG --include=*.go | grep -v _test.go
+  .../cmd/integ_token_refresh/main.go:133:	primary3.SetCurrentToken(simulatedToken)
+  ```
+
+**So the SDK does not call any of `ExecuteRaw`, `RefreshToken` or
+`SetCurrentToken`.** They are the same species of thing — a user-facing escape
+hatch this repo has not reached yet — and labelling them `internal` would assert
+something the SDK source does not support. The same word would have been wrong
+for `GetAccountSubscriptions` for a different reason: it has no caller anywhere,
+inside or outside the module.
+
+#### The `Close` false positive
+
+`HttpClient.Close` is the one method the check counts as covered, and **a green
+run is not evidence that it was exercised.**
+
+The matcher searches by **method name**, not by receiver type: for each method
+name it asks whether `\.Name(` appears anywhere under `cmd/` or `internal/`.
+There are **nine** `.Close(` sites in non-test code there, and only **two** of
+them are the SDK's method:
+
+```go
+// internal/tigersdk/tigersdk.go — the two that are the SDK's
+s.HTTP.Close()        // *HttpClient
+s.QuoteHTTP.Close()   // *HttpClient
+```
+
+The other seven are our own `Session.Close` (`cmd/quote`, `cmd/trade`,
+`internal/rocli`) and `env.Close` (`cmd/options`, `cmd/corporate`,
+`cmd/futures`, `cmd/reference`) — different types, different methods, same
+word. A green run therefore proves only that the string `Close(` appears
+somewhere in the tree. It does **not** prove `HttpClient.Close` ran, and this
+README does not claim it did.
+
+The collision is harmless today, and only by luck: every other method on the
+list is a `quote`, `trade` or `push` name, and none of our own helpers is called
+`GetBrief`, `GetKline` or `SubscribeQuote`. It would not be harmless if a future
+SDK method shared a name with a helper of ours — which is exactly why the
+limitation is written down here instead of being left for someone to
+rediscover. The rule this section follows: **`HttpClient.Close` is not claimed
+as covered.**
+
+#### How the scan works
+
+The receiver pattern is **receiver-name-agnostic** — it matches
+`\([a-zA-Z_][A-Za-z0-9_]* \*?[A-Za-z]+Client\)`, not a hardcoded `(c *`. Pinning
+the receiver name is a latent bug with no failure attached: the day the SDK
+renames one receiver, the pattern matches nothing for that type, the whole type
+silently drops out of the denominator, and the run is simply smaller and
+greener.
+
+The optional `*?` is the same class of insurance, and worth being precise about
+what it is worth: value receivers do exist elsewhere in the module (`model` and
+`logger` have them), but **none of the four scanned client types declares one
+today**, so the `*?` changes nothing in the current count. It is there so that
+introducing one is a zero-change event rather than a silent 151-method shrink.
+
+The glob is **flat** (`$base/$pkg/*.go`, not `-r`), which is what keeps the
+generated Protobuf package out: `push/pb/` declares 436 exported methods over
+32 receiver types, 278 of them field accessors and 87 of them
+`Reset`/`String`/`ProtoReflect` — hundreds of call sites no SDK user would
+write. A flat glob cannot reach `push/pb/` at all, so the exclusion is
+structural rather than a flag that might be dropped. `--exclude-dir=pb` is
+honest documentation of that intent, not the guard: making the glob recursive
+*while keeping the flag* leaves the count at 159, and making it recursive
+*while dropping the flag* also leaves it at 159, because no `pb` receiver type
+ends in `Client` and the string `Client` never appears in `push/pb` at all. Do
+not read a green run as evidence that the flag is doing the work.
+
+`--exclude='*_test.go'` keeps the SDK's own tests out. Measured, none of them
+declares a method on the four client types today, so the counts are identical
+either way — the flag is insurance, not arithmetic. The SDK's
+`push/coverage_extra_test.go` and `client/coverage_extra_test.go` are exactly the
+kind of file that grows a helper method on the type under test, and a test
+helper is not a call site this target is claiming coverage for.
+
+#### History — the trade-client correction
+
 An earlier version of this README claimed all 31 previously-uncovered trade
 methods were account-mutating and would each need the write gate. That was
 wrong. Exactly **24 of the 31 were plain reads**, and all 24 are now covered:
@@ -998,6 +1461,14 @@ This is a **static** check. It proves a method is *referenced from `cmd/` or
 `internal/`*, not that it was *exercised against a live Tiger account*. Nothing
 in this repo has run with valid credentials — see "This project has NOT been
 validated against the live Tiger API" near the top of this README.
+
+Two consequences worth stating separately, because they are different strengths
+of claim:
+
+- **The counts are a reference search.** `GetBars` gaining a call site changes a
+  number; it does not mean a bar was ever fetched.
+- **A name-based match can be the wrong method.** `HttpClient.Close` is the
+  known instance, and it is documented above rather than quietly counted.
 
 ### There is no REST here, and no HTTP verbs
 
@@ -1042,7 +1513,7 @@ make run-corporate ARGS="-op dividend -symbols AAPL -market US"
 
 `make verify` is the whole CI set, and its last step is the one worth knowing
 about: `coverage-check` does not merely *count* coverage, it asserts the
-uncovered set is **exactly** the fourteen methods listed below, so a new gap
+uncovered set is **exactly** the twenty-two methods listed above, so a new gap
 fails and so does a method that quietly gained a call site.
 
 ```console
@@ -1052,7 +1523,7 @@ gofmt: clean
 /usr/local/go/bin/go test -race ./...
 …
 built: quote trade push options futures reference corporate
-sdk coverage: 103/117 methods covered, 14 uncovered
+sdk coverage: 137/159 methods covered, 22 uncovered
 uncovered set matches the allow-list:
   GetBrief:deprecated
   GetBars:deprecated
@@ -1068,6 +1539,14 @@ uncovered set matches the allow-list:
   OptionExerciseSubmit:mutating
   OptionExerciseCancel:mutating
   SetSecretKey:not-a-call
+  GetAccountSubscriptions:not-used
+  ExecuteRaw:not-used
+  RefreshToken:not-used
+  SetCurrentToken:not-used
+  Execute:internal
+  QueryToken:internal
+  SecretKey:internal
+  StartTokenAutoRefresh:internal
 ```
 
 Or directly:
@@ -1081,14 +1560,14 @@ go test -race ./...
 
 ### Test suite
 
-`go test ./...` puts **7** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **337**:
+`go test ./...` puts **8** packages behind tests and passes. The rough case
+count — every `=== RUN` and every subtest `--- PASS` line — is **592**:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-337
+592
 $ go test -count=1 ./... | grep -c '^ok'
-7
+8
 ```
 
 Per-package statement coverage:
@@ -1096,8 +1575,9 @@ Per-package statement coverage:
 | Package | Coverage | What it covers |
 |---|---|---|
 | `internal/logging` | **100.0%** | Level parsing, filtering, formatting, `Discard`, concurrency, SDK-noise silencing |
-| `internal/tigersdk` | **~98.6%** | Every SDK-input defence, session construction, both gateways, `Close`, error rendering, push client |
+| `internal/tigersdk` | **~98.7%** | Every SDK-input defence, session construction, both gateways, `Close`, error rendering, push client |
 | `internal/config` | **82.1%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
+| `cmd/push` | **86.0%** | The feed vocabulary against both dispatch switches, the flag defaults, the `-market` and `-indicators` validators, the cooldown policy, the delivery tracker, every renderer |
 | `cmd/trade` | **58.1%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **39.8%** | Exit codes, row formatting, truncation |
 | `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
@@ -1108,19 +1588,27 @@ $ go test -cover ./...
 	github.com/shing1211/tiger-go-demo/cmd/corporate		coverage: 0.0% of statements
 	github.com/shing1211/tiger-go-demo/cmd/futures		coverage: 0.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/cmd/options	coverage: 10.3% of statements
-	github.com/shing1211/tiger-go-demo/cmd/push		coverage: 0.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/cmd/push	coverage: 86.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/cmd/quote	coverage: 21.2% of statements
 	github.com/shing1211/tiger-go-demo/cmd/reference		coverage: 0.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/cmd/trade	coverage: 58.1% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/config	coverage: 82.1% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/logging	coverage: 100.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/rocli	coverage: 39.8% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/tigersdk	coverage: 98.6% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/tigersdk	coverage: 98.7% of statements
 ```
 
-Two of those numbers need a caveat, because a percentage can mean more than it
+Three of those numbers need a caveat, because a percentage can mean more than it
 does:
 
+- **`cmd/push` at 86.0% tests the command's own decisions, not the wire.** The
+  push client is reached through a `pushClient` interface that the test suite
+  fakes, so every subscribe, the delivery accounting, the cooldown policy and
+  every renderer are exercised hermetically — with no connection, no
+  credentials and no network. What that cannot cover is the 14% that needs a
+  live server: the callbacks the SDK invokes, and therefore the payload values
+  the renderers format. The shapes are pinned; the values are not, because no
+  run in this repo has produced any.
 - **`cmd/quote` at 21.2% covers exactly one endpoint's rendering.** The rest of
   `cmd/quote`'s printers — briefs, k-lines, timeline, depth, market state — are
   **not** covered, and they are not covered by an oversight that a better test
@@ -1131,7 +1619,7 @@ does:
   The entitlement printer avoids the problem by being split from the call
   (`printAddonEntitlement` calls, `printEntitlement` renders), so the rendering
   — which is where the absent-versus-zero subtlety lives — is testable offline.
-- **`internal/tigersdk` at ~98.6% is the meaningful number, because of the
+- **`internal/tigersdk` at ~98.7% is the meaningful number, because of the
   control tests.** Each defence in that package has a *companion* test that
   proves the hazard is actually reachable, by handing the raw SDK the same input
   and asserting it **does** get adopted:
@@ -1223,7 +1711,7 @@ $ openspec validate --specs --strict
 Totals: 6 passed, 0 failed (6 items)
 ```
 
-Six capabilities, 21 requirements:
+Six capabilities, 33 requirements:
 
 | Spec | What it owns |
 |---|---|
@@ -1231,8 +1719,8 @@ Six capabilities, 21 requirements:
 | `exit-codes` | the four statuses, the two classifications that are easiest to get wrong, and the two binaries that can never produce a refusal |
 | `credential-defence` | all five SDK-discovered credential inputs neutralised, and the deliberate asymmetry in what is warned about |
 | `secret-redaction` | the exact form a secret takes in any printable rendering, and that an unset app secret is omitted rather than sent empty |
-| `sdk-coverage` | the coverage figure, that every gap is a stated exclusion, and that the split is drawn on account state rather than the HTTP verb |
-| `verification-honesty` | that a rejected request proves a request was built, signed, delivered and refused — and that a record of past runs is not a statement about the present |
+| `sdk-coverage` | the coverage figure over all four client types, that every gap is a stated exclusion, the meaning of each exclusion reason, the known name-collision false positive, and that the split is drawn on account state rather than the HTTP verb |
+| `verification-honesty` | that a rejected request proves a request was built, signed, delivered and refused — that a record of past runs is not a statement about the present, that a nil from a subscribe is not an acceptance, that nothing here is verified against live data, and that an undocumented vendor format is passed through and flagged rather than guessed |
 
 Read a spec when you want to know **what must be true**. Read this README when
 you want to know **how it behaves, how to run it, and how far it has been
