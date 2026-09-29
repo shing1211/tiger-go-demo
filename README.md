@@ -47,14 +47,19 @@ To use this project you need all of the following:
 
 ### 🔒 This project has NOT been validated against the live Tiger API
 
-Be clear-eyed about what is and is not proven:
+**The rule these three bullets exist to obey is normative in
+[`openspec/specs/verification-honesty/`](openspec/specs/verification-honesty/spec.md):**
+an artifact describes what was observed and what was tested, a rejected request
+proves only that a request was built, signed, delivered and refused, and a
+record of past runs is not a statement about the present. The accounting itself
+is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (7 packages, ~337 cases — see [Test suite](#test-suite)), all seven
+  tests pass (7 packages, 337 cases — see [Test suite](#test-suite)), all seven
   binaries run, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
-  exercised by tests.
+  exercised by tests. `make verify` runs all of that plus `coverage-check`.
 - **Also proven — historically, and not re-runnable:** the HTTP path reaches
   Tiger's *real* production gateway and returns a *real* API error
   (`code=1000 common param error(tigerId … is illegal)`) with deliberately fake
@@ -75,6 +80,12 @@ Be clear-eyed about what is and is not proven:
   corporate-action type strings are Tiger-side contracts this project can only
   pass through.
 
+Note the shape of that last bullet: it is a list of Tiger-side contracts this
+project passes through unchanged, which is precisely the class of thing a green
+test suite cannot speak for. `openspec/specs/sdk-coverage/` records the same
+distinction on the coverage side — a method is covered when it is *referenced*,
+not when it has been *exercised*.
+
 Use small orders, and check your positions, on your first live run.
 
 ---
@@ -82,7 +93,10 @@ Use small orders, and check your positions, on your first live run.
 ## Safety model
 
 Because there is no sim mode, the write path is defended twice. **Both** gates
-must be satisfied before a single byte reaches Tiger:
+must be satisfied before a single byte reaches Tiger, and neither alone is
+enough. The normative statement of that — including what a refusal does to the
+method call — is
+[`openspec/specs/write-gate/`](openspec/specs/write-gate/spec.md). At a glance:
 
 | Gate | Default | How to satisfy it |
 |---|---|---|
@@ -205,9 +219,26 @@ keys are also errors, so typos surface immediately.
 go run ./cmd/quote -symbols AAPL
 ```
 
-With no credentials you get a precise, actionable error and exit code 2:
+**Exit statuses are normative in
+[`openspec/specs/exit-codes/`](openspec/specs/exit-codes/spec.md):** `0`
+success, `1` an ordinary failure, `2` missing credentials, `3` a safety refusal,
+with no two meanings sharing a status. Two consequences worth knowing up front,
+because they are the ones that are easy to mis-script:
 
-```
+- **`2` means missing credentials and nothing else.** An unusable flag, an
+  unparseable value, an unknown `-op` and an unreadable named config file are
+  all `1`. A script that reads `2` knows only that the environment needs fixing.
+- **Only `cmd/trade` can ever exit `3`.** The `quote` and `push` binaries
+  contain no branch that produces it, because neither has a write path to
+  refuse. The shared read-only plumbing in `internal/rocli` *does* define `3`,
+  so the status is reachable in the code but not in those two commands' output.
+
+With no credentials you get a precise, actionable error and exit code 2 —
+reproduced here on the built binary with all five `TIGER_*` variables unset:
+
+```console
+$ env -u TIGER_ID -u TIGER_PRIVATE_KEY -u TIGER_PRIVATE_KEY_FILE \
+      -u TIGER_ACCOUNT -u TIGER_SECRET_KEY ./bin/quote -symbols AAPL
 error: incomplete Tiger OpenAPI configuration
 
 Missing required setting(s):
@@ -227,9 +258,15 @@ Where each credential comes from (https://quant.itigerup.com/openapi/en/):
 
 Note: a Tiger SIMULATED account will NOT authenticate against OpenAPI.
 You need a real, funded account with OpenAPI access enabled.
+
+exit=2
 ```
 
-`--help` works with no credentials at all and exits 0.
+Note what that message does *not* ask for: `TIGER_ACCOUNT` is not listed, because
+`cmd/quote` reads no account state. A trading command with the same environment
+does ask for it, and also exits `2`.
+
+`--help` works with no credentials at all and exits `0`.
 
 ---
 
@@ -646,15 +683,24 @@ It is now honoured, and the fix is structural rather than a reordering:
 
 - **Secrets are never logged.** `private_key` and `secret_key` are rendered as
   `<redacted:N bytes>` everywhere, including via `fmt.Stringer`, so an
-  accidental `fmt.Printf("%v", cfg)` cannot leak one. Covered by tests.
+  accidental `fmt.Printf("%v", cfg)` cannot leak one. Covered by tests. The
+  rule, and the fact that the *string* form of the configuration is the redacted
+  one, are normative in
+  [`openspec/specs/secret-redaction/`](openspec/specs/secret-redaction/spec.md).
 - **`secret_key` is omitted, never empty.** Tiger rejects an empty
   `secret_key` in `biz_content` with `biz_param_error(1010)`. This project
-  leaves the field unset unless you actually configured one.
+  leaves the field unset unless you actually configured one — an unset app
+  secret is left *out* of the request, not sent as `""`.
 - **The SDK's own `TIGEROPEN_*` env vars are deliberately unused**, so this
   project's loader stays the single source of truth. Note that "unused" is
   enforced, not assumed: see the stray-input table below.
 
 ### The complete set of inputs the SDK honours, and what this project does with them
+
+**The normative statement is
+[`openspec/specs/credential-defence/`](openspec/specs/credential-defence/spec.md).**
+The table is the evidence, and it is kept whole because the last two rows are the
+ones a reader should be able to check for themselves:
 
 The SDK accepts credentials and endpoints from five places this project does not
 configure: three files and two groups of environment variables. **All five are
@@ -752,6 +798,8 @@ tiger-go-demo/
 │   └── tigersdk/           SDK client construction; defeats every SDK-discovered input
 │       ├── tigersdk.go
 │       └── tigersdk_test.go
+├── openspec/
+│   └── specs/              the normative requirements; see "Specification layer"
 ├── .env.example
 ├── config.example.yaml
 ├── Makefile
@@ -767,8 +815,22 @@ exposes no trade client, which is why those commands cannot place an order.
 
 ## SDK coverage
 
+**The normative statement is
+[`openspec/specs/sdk-coverage/`](openspec/specs/sdk-coverage/spec.md):** the
+current figure, that every remaining gap is excluded for a stated structural
+reason rather than forgotten, and that a rejected request is not a mutation in
+this API. This section is the evidence for all three.
+
 Of the SDK's **117** exported client methods (**78** on `QuoteClient`, **39**
-on `TradeClient`), this project now exercises **103**, leaving **14** uncovered:
+on `TradeClient`), this project now exercises **103**, leaving **14** uncovered —
+and `make coverage-check` fails the build if that set is not *exactly* these
+fourteen, so the number cannot drift quietly:
+
+```console
+$ make coverage-check
+sdk coverage: 103/117 methods covered, 14 uncovered
+uncovered set matches the allow-list:
+```
 
 | | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` | Now (`-op addon-entitlement`) |
 |---|---|---|---|---|
@@ -927,15 +989,46 @@ precisely because it cannot place anything.
 
 ```bash
 make help          # list targets
-make verify        # gofmt check + go vet + go test -race + build
+make verify        # fmt-check + vet + test -race + build + coverage-check
 make build         # binaries into ./bin (all seven)
-make test          # unit tests
+make test          # unit tests with the race detector
+make coverage-check  # fail unless the uncovered SDK methods are exactly the allow-list
 
 make run-quote     ARGS="-symbols AAPL"
 make run-options   ARGS="-op expiration"
 make run-futures   ARGS="-op exchange"
 make run-reference ARGS="-op stock-details -symbols AAPL"
 make run-corporate ARGS="-op dividend -symbols AAPL -market US"
+```
+
+`make verify` is the whole CI set, and its last step is the one worth knowing
+about: `coverage-check` does not merely *count* coverage, it asserts the
+uncovered set is **exactly** the fourteen methods listed below, so a new gap
+fails and so does a method that quietly gained a call site.
+
+```console
+$ make verify
+gofmt: clean
+/usr/local/go/bin/go vet ./...
+/usr/local/go/bin/go test -race ./...
+…
+built: quote trade push options futures reference corporate
+sdk coverage: 103/117 methods covered, 14 uncovered
+uncovered set matches the allow-list:
+  GetBrief:deprecated
+  GetBars:deprecated
+  GetBarsByPage:deprecated
+  GetOptionBrief:deprecated
+  GetWarrantBriefs:deprecated
+  GetStockDelayBriefs:deprecated
+  GrabQuotePermission:mutating
+  PlaceForexOrder:mutating
+  TransferSegmentFund:mutating
+  CancelSegmentFund:mutating
+  TransferPosition:mutating
+  OptionExerciseSubmit:mutating
+  OptionExerciseCancel:mutating
+  SetSecretKey:not-a-call
 ```
 
 Or directly:
@@ -1065,6 +1158,46 @@ ok  	github.com/shing1211/tiger-go-demo/cmd/trade	1.162s
 
 (The four `--- PASS` lines and the `ok` line are verbatim output; the `# N
 subtests` notes are counts, `grep -cE '^    --- PASS'` per test.)
+
+---
+
+## Specification layer
+
+**`openspec/specs/` holds the normative requirements. This README holds the
+evidence and the instructions.** Where the two used to say the same thing, the
+spec now owns the rule and the README keeps the transcript, the control-test
+table and the caveat — because a rule with no recorded observation behind it is
+a claim, and a claim is what this project is trying not to make.
+
+The layer is validated, so a spec that drifts out of shape fails rather than
+lingering:
+
+```console
+$ openspec validate --specs --strict
+- Validating...
+✓ spec/credential-defence
+✓ spec/exit-codes
+✓ spec/sdk-coverage
+✓ spec/secret-redaction
+✓ spec/verification-honesty
+✓ spec/write-gate
+Totals: 6 passed, 0 failed (6 items)
+```
+
+Six capabilities, 21 requirements:
+
+| Spec | What it owns |
+|---|---|
+| `write-gate` | the two independent conditions that must both hold before a byte is sent, and that a refusal stops the method call |
+| `exit-codes` | the four statuses, the two classifications that are easiest to get wrong, and the two binaries that can never produce a refusal |
+| `credential-defence` | all five SDK-discovered credential inputs neutralised, and the deliberate asymmetry in what is warned about |
+| `secret-redaction` | the exact form a secret takes in any printable rendering, and that an unset app secret is omitted rather than sent empty |
+| `sdk-coverage` | the coverage figure, that every gap is a stated exclusion, and that the split is drawn on account state rather than the HTTP verb |
+| `verification-honesty` | that a rejected request proves a request was built, signed, delivered and refused — and that a record of past runs is not a statement about the present |
+
+Read a spec when you want to know **what must be true**. Read this README when
+you want to know **how it behaves, how to run it, and how far it has been
+checked**.
 
 ---
 
