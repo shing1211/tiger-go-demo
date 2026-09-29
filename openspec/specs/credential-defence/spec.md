@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The trading client library accepts credentials from places this project does not configure, and it applies them with a priority high enough to redirect an order to somebody else's account. This capability fixes that all five of those inputs are neutralised — including a bearer-token file that would otherwise authenticate every request — and it fixes the deliberate asymmetry in the feedback: the three files are named in a warning, the two environment-variable groups are not, because a file a user does not know exists is the case worth a line of output.
+The trading client library accepts credentials from places this project does not configure, and it applies them with a priority high enough to redirect an order to somebody else's account. This capability fixes that all five of those inputs are neutralised — including a bearer-token file that would otherwise authenticate every request — and it fixes the deliberate asymmetry in the feedback: every input that resolves to a file is named in a warning, and the environment variables that carry a value are not, because a file a user does not know exists is the case worth a line of output.
 
 ## Requirements
 
@@ -59,9 +59,9 @@ The bearer token the client library discovers SHALL be cleared on the client con
 - **WHEN** the client library is built with explicit credentials and a token file in the working directory
 - **THEN** it does pick the token up from that file, which is what makes clearing it load-bearing
 
-### Requirement: The three files are named in a warning, and the environment variables are not
+### Requirement: Discovered files are named in a warning, and env-var values are not
 
-A properties file or token file found in the working directory, and a properties file found in the home directory, SHALL each be named in a warning that states it is being ignored, explains the consequence, and tells the user to delete it. The two environment-variable groups SHALL NOT be warned about, and the absence of that warning SHALL be a known, recorded gap rather than an oversight.
+A properties file or token file found in the working directory, a properties file found in the home directory, and the file the token-file environment variable names SHALL each be named in a warning that states it is being ignored, explains the consequence, and tells the user to delete it. An environment variable carrying a value SHALL NOT be warned about, and that absence SHALL be a recorded gap, not an oversight.
 
 #### Scenario: A file in the working directory is named and explained
 
@@ -77,6 +77,31 @@ A properties file or token file found in the working directory, and a properties
 
 - **WHEN** only a properties file in the home directory is present
 - **THEN** it is named exactly once, so the user is not sent to delete something that is not there
+
+#### Scenario: A file the environment variable redirects to is named too
+
+- **WHEN** the token-file environment variable names an existing file outside the working directory
+- **THEN** a warning names that path and states the file is being ignored, because it is a file the client library would read a token from and the directory scans cannot reach it by construction
+
+#### Scenario: A redirected path is named as it was exported
+
+- **WHEN** the exported path contains redundant elements that normalising a path would rewrite
+- **THEN** the warning reproduces the exported string unaltered, because that is the value the client library would open and the only form the user can recognise
+
+#### Scenario: A redirected path that is not a file is silent
+
+- **WHEN** the token-file environment variable names a path that does not exist
+- **THEN** no warning is produced, because nothing was discovered to redirect anything and this check is existence-based like the other three
+
+#### Scenario: An empty token-file environment variable is silent
+
+- **WHEN** the token-file environment variable is set to an empty or whitespace-only value
+- **THEN** no warning is produced, because the client library falls back to its default token file for such a value and that file is the working-directory one already covered above
+
+#### Scenario: No token value and no file contents reach the output
+
+- **WHEN** any of these warnings is produced
+- **THEN** it names paths only, and never the value of the token environment variable nor the contents of a token file
 
 #### Scenario: A missing home directory disables one detection only
 
