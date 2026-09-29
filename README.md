@@ -699,22 +699,26 @@ It is now honoured, and the fix is structural rather than a reordering:
 
 **The normative statement is
 [`openspec/specs/credential-defence/`](openspec/specs/credential-defence/spec.md).**
-The table is the evidence, and it is kept whole because the last two rows are the
+The table is the evidence, and it is kept whole because the last three rows are the
 ones a reader should be able to check for themselves:
 
 The SDK accepts credentials and endpoints from five places this project does not
 configure: three files and two groups of environment variables. **All five are
-neutralised.** The three **files** are also **named in a warning**; the env vars
-are not. That asymmetry is deliberate and is stated below rather than papered
-over.
+neutralised.** Four of the five are also **named in a warning** — the three files,
+plus the file `$TIGEROPEN_TOKEN_FILE` points at. `$TIGEROPEN_TOKEN` and the
+credential variables are not. That asymmetry is deliberate, and it is narrower
+than it was: the one input that is file-shaped but not a file in a scanned
+directory has joined the files, and the reason it did is stated below rather than
+papered over.
 
 | Input | Neutralised? | Warned? | Notes |
 |---|---|---|---|
 | `./tiger_openapi_config.properties` | yes | **yes** | Re-asserted after the SDK builds its config. Long-standing. |
 | `~/.tigeropen/tiger_openapi_config.properties` | yes | **yes** (new) | Found from *any* working directory. Was defended but silent. |
 | `./tiger_openapi_token.properties` | yes (new) | **yes** (new) | The significant gap. See below. |
-| `$TIGEROPEN_TOKEN`, `$TIGEROPEN_TOKEN_FILE` | yes (tested) | **no** | Honest gap in the warning, not in the defence. |
-| `$TIGEROPEN_TIGER_ID` and friends | yes | no | Same treatment as the token env vars. |
+| `$TIGEROPEN_TOKEN` | yes (tested) | no | A value, not a path. `warnStrayFile` prints a path, so it could never name one. |
+| `$TIGEROPEN_TOKEN_FILE` | yes (tested) | **yes** (new) | File-shaped, and it can name a path anywhere on disk — outside both the working directory and the home directory. |
+| `$TIGEROPEN_TIGER_ID` and friends | yes | no | Same treatment as `$TIGEROPEN_TOKEN`: values, not paths. |
 
 `internal/tigersdk.NewClientConfig` re-asserts **every** field of the
 `ClientConfig` after the SDK has built it, so a stray file cannot redirect your
@@ -737,16 +741,36 @@ config: a loopback listener saw `Authorization: STRAY-TOKEN-ABC` from the raw
 SDK built with no token option at all, and an empty header from a session this
 project built with the same file sitting in the working directory.
 
-**`$TIGEROPEN_TOKEN` and `$TIGEROPEN_TOKEN_FILE` are neutralised but not
-warned.** Both are covered by tests and both lose to the same clearing, but
-neither produces output. The asymmetry is deliberate: an environment variable is
-something you can see in your own shell, while a file you may not know exists is
-not — so the warning budget goes to the files. It is still an undocumented
-silence, and it is recorded here rather than left for someone to discover.
+**`$TIGEROPEN_TOKEN` is neutralised but silent; `$TIGEROPEN_TOKEN_FILE` is now
+named.** Both are covered by tests and both lose to the same `sc.Token` clearing,
+but only one of them is reported. The rest of the asymmetry is intact and still
+deliberate: an environment variable is something you can see in your own shell,
+while a file you may not know exists is not — so the warning budget goes to
+files.
+
+`$TIGEROPEN_TOKEN_FILE` is the carve-out, and it earns the exception twice over.
+It is **file-shaped** — what it names is a file, and a file the SDK would read a
+token from. And it **escapes both directory scans**: the working directory and
+`~/.tigeropen` are the only places the three file checks look, and this variable
+can name a path anywhere on disk. "We warn you about files" would otherwise be
+an untrue rule rather than a narrow one, and this is the input that breaks it.
+Its payload is also the highest-consequence of the four: the bearer token the SDK
+copies into the `Authorization` header of every request.
+
+It is printed **last** anyway, because it is the least likely of the four — it
+takes a deliberate export, where the three files are things somebody left lying
+around. Being last costs a line of output; not warning at all would have cost a
+silent token source.
+
+What is still silent is `$TIGEROPEN_TOKEN` and the credential variables. That
+remains a recorded gap rather than an oversight, and it is recorded here instead
+of left for someone to discover.
 
 `WarnStrayProperties` keeps the message format it always had — name the file,
 say it is being ignored, explain the consequence, say to delete it. The body was
-factored so each new detection reuses the same text. Two limits are worth knowing:
+factored so each new detection reuses the same text. It runs **four** detections
+now — three files, then the environment variable — and four limits are worth
+knowing:
 
 - It **degrades silently** when `HOME` is unset or unreadable (a bare container,
   a cron job with no login shell). No home directory means the file cannot be
@@ -754,11 +778,26 @@ factored so each new detection reuses the same text. Two limits are worth knowin
 - **One broken lookup disables one detection, not all of them.** A missing
   `HOME` still leaves the working-directory and token-file warnings intact, and
   that is asserted by a test.
+- **The fourth check is existence-based**, like the other three. A
+  `$TIGEROPEN_TOKEN_FILE` naming a file that is not there produces nothing, and an
+  empty or whitespace-only value is silent too. There is no discovered file to
+  report in either case, and an empty value is not even a redirection — the SDK
+  falls back to its default token file name, which is the third check.
+- **Its path is echoed verbatim, not normalised.** `sub/../token.properties` comes
+  back as `sub/../token.properties`, deliberately: the SDK hands the raw
+  environment value to its token manager, so the raw string is the one it would
+  actually open, and the only form you can match against your own shell history or
+  `.env`. The cost is a value whose `$HOME` was never expanded: the existence
+  check then fails and nothing is named, even though the variable is set. The
+  benefit is that this is the one warning whose path is a real, actionable path as
+  typed, where the working-directory ones are not (below).
 
 Every `WarnStrayProperties` call site passes `"."`, so the working-directory
 name in the warning is the bare filename, not `./tiger_…`. The absolute form
 appears when an absolute directory is passed. Adequate for a human reading a
-terminal; not a path a script could delete from.
+terminal; not a path a script could delete from. `$TIGEROPEN_TOKEN_FILE` is the
+one exception, and by construction: its value is never joined onto a directory,
+so what the warning reads back is exactly what you exported.
 
 - **`.gitignore` covers `.env`, `*.properties`, `config.local.yaml`,
   `config.yaml`, `*.pem` and `*.key`.** Never commit real credentials.
@@ -1226,10 +1265,13 @@ Working as designed. Pass `--confirm-live` **and** set `TIGER_DRY_RUN=false`.
 
 **`warning: found <path> … being IGNORED`**
 A file the SDK would otherwise have discovered on its own —
-`./tiger_openapi_config.properties`, `~/.tigeropen/tiger_openapi_config.properties`
-or `./tiger_openapi_token.properties`. It is being ignored on purpose, and the
-path in the warning is the one to delete. If you expected its values to be in
-effect, they were not: this project loads credentials from env/YAML only.
+`./tiger_openapi_config.properties`, `~/.tigeropen/tiger_openapi_config.properties`,
+`./tiger_openapi_token.properties`, or whatever `$TIGEROPEN_TOKEN_FILE` points at.
+It is being ignored on purpose, and the path in the warning is the one to delete.
+If you expected its values to be in effect, they were not: this project loads
+credentials from env/YAML only. If the last one is the surprise, `unset
+TIGEROPEN_TOKEN_FILE` is the fix — the variable belongs to the SDK, and this
+project reads it for nothing except the warning above.
 
 **Push: `等待 CONNECTED 响应超时` (timed out waiting for CONNECTED)**
 The TLS connection opened but authentication was rejected — same credential
