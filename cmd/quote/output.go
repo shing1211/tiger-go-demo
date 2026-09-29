@@ -4,11 +4,106 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	sdkmodel "github.com/tigerfintech/openapi-go-sdk/model"
 	sdkquote "github.com/tigerfintech/openapi-go-sdk/quote"
 )
+
+// dispatchOp routes a single -op to its printer. Every endpoint in ops is a
+// read; there is no write case here and no write gate to check.
+func dispatchOp(ctx context.Context, qc *sdkquote.QuoteClient, op string, w io.Writer) error {
+	switch op {
+	case "addon-entitlement":
+		return printAddonEntitlement(ctx, qc, w)
+	default:
+		return fmt.Errorf("unknown -op %q (want: %s)", op, strings.Join(ops, ", "))
+	}
+}
+
+// printAddonEntitlement reports the account's addon plan: the tier it is on, the
+// plan currently in force, each addon attached to it, and the quota that remains
+// once the addons are applied (生效后的权益额度明细).
+//
+// EffectiveEntitlement is a pointer, so a nil means the server sent no detail
+// block at all and is printed as such. Its fourteen fields are plain ints with
+// omitempty json tags: a field the server omits arrives as 0, and the type
+// offers no way to tell that apart from a genuine zero, so both print as 0.
+func printAddonEntitlement(ctx context.Context, qc *sdkquote.QuoteClient, w io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	ent, err := qc.GetAddonEntitlement()
+	if err != nil {
+		return fmt.Errorf("get addon entitlement: %w", err)
+	}
+	printEntitlement(w, ent)
+	return nil
+}
+
+// printEntitlement is separated from the call above so the rendering can be
+// tested against a hand-built response, without a credentialed round trip.
+func printEntitlement(w io.Writer, ent *sdkmodel.AddonEntitlement) {
+	fmt.Fprintf(w, "\n== addon entitlement ==\n")
+	if ent == nil {
+		fmt.Fprintf(w, "  (no entitlement returned)\n")
+		return
+	}
+
+	// UserLevel is a FlexString: the server sometimes sends a number here.
+	fmt.Fprintf(w, "  user_level  %s\n", orDash(ent.UserLevel.String()))
+
+	if ent.ActivePlan == nil {
+		fmt.Fprintf(w, "  active_plan (none)\n")
+	} else {
+		fmt.Fprintf(w, "  active_plan plan_type=%s expire=%s\n",
+			orDash(ent.ActivePlan.PlanType), msToTime(ent.ActivePlan.ExpireTime))
+	}
+
+	if len(ent.Addons) == 0 {
+		fmt.Fprintf(w, "  addons (none)\n")
+	} else {
+		fmt.Fprintf(w, "  addons (%d)\n", len(ent.Addons))
+		fmt.Fprintf(w, "    %-20s %-7s %-20s %-20s\n", "PLAN_TYPE", "ACTIVE", "START", "EXPIRE")
+		for _, a := range ent.Addons {
+			fmt.Fprintf(w, "    %-20s %-7t %-20s %-20s\n",
+				orDash(a.PlanType), a.Active, msToTime(a.StartTime), msToTime(a.ExpireTime))
+		}
+	}
+
+	if ent.EffectiveEntitlement == nil {
+		fmt.Fprintf(w, "  effective_entitlement (absent)\n")
+		return
+	}
+	e := ent.EffectiveEntitlement
+	fmt.Fprintf(w, "  effective_entitlement\n")
+	fmt.Fprintf(w, "    %-22s %10s %10s\n", "QUOTA", "LIMIT", "REMAINING")
+	for _, q := range []struct {
+		name             string
+		limit, remaining int
+	}{
+		{"history_stock", e.HistoryStockLimit, e.HistoryStockRemaining},
+		{"history_future", e.HistoryFutureLimit, e.HistoryFutureRemaining},
+		{"history_option", e.HistoryOptionLimit, e.HistoryOptionRemaining},
+		{"subscribe", e.SubscribeLimit, e.SubscribeRemaining},
+		{"subscribe_depth", e.SubscribeDepthLimit, e.SubscribeDepthRemaining},
+	} {
+		fmt.Fprintf(w, "    %-22s %10d %10d\n", q.name, q.limit, q.remaining)
+	}
+	// These four have no remaining/limit split in the SDK's model.
+	for _, q := range []struct {
+		name  string
+		limit int
+	}{
+		{"high_freq_limit", e.HighFreqLimit},
+		{"mid_freq_limit", e.MidFreqLimit},
+		{"low_freq_limit", e.LowFreqLimit},
+		{"rate_multiple", e.RateMultiple},
+	} {
+		fmt.Fprintf(w, "    %-22s %10d\n", q.name, q.limit)
+	}
+}
 
 func printMarketState(ctx context.Context, qc *sdkquote.QuoteClient, market string, w io.Writer) error {
 	if err := ctx.Err(); err != nil {

@@ -1,5 +1,6 @@
 // Command quote fetches Tiger OpenAPI market data: real-time briefs,
-// historical bars, market state and order-book depth.
+// historical bars, market state, order-book depth and the account's addon-plan
+// entitlements.
 //
 // It is read-only. It never places, modifies or cancels an order.
 //
@@ -13,6 +14,7 @@
 //	go run ./cmd/quote -symbols AAPL -klines -period day -limit 5
 //	go run ./cmd/quote -symbols AAPL -depth -market US
 //	go run ./cmd/quote -market-state US
+//	go run ./cmd/quote -op addon-entitlement
 package main
 
 import (
@@ -40,7 +42,14 @@ func main() {
 	}
 }
 
+// ops are the endpoints reachable through -op, kept in one place so the flag
+// help, the usage text and the dispatcher cannot drift apart. An empty -op runs
+// the default flow: real-time briefs for -symbols, plus any extras the other
+// flags ask for.
+var ops = []string{"addon-entitlement"}
+
 type options struct {
+	op          string
 	symbols     string
 	klines      bool
 	timeline    bool
@@ -58,6 +67,7 @@ func run(args []string, stdout, stderr *os.File) error {
 	fs.SetOutput(stderr)
 
 	var o options
+	fs.StringVar(&o.op, "op", "", "endpoint: "+strings.Join(ops, "|")+" (default: real-time briefs for -symbols)")
 	fs.StringVar(&o.symbols, "symbols", "AAPL,MSFT", "comma-separated symbols, e.g. AAPL,MSFT,0700.HK")
 	fs.BoolVar(&o.klines, "klines", false, "also fetch historical bars (k-lines)")
 	fs.BoolVar(&o.timeline, "timeline", false, "also fetch intraday timeline")
@@ -103,6 +113,10 @@ func run(args []string, stdout, stderr *os.File) error {
 
 	qc := session.Quote()
 
+	if o.op != "" {
+		return dispatchOp(ctx, qc, o.op, stdout)
+	}
+
 	if o.marketState != "" {
 		return printMarketState(ctx, qc, o.marketState, stdout)
 	}
@@ -139,7 +153,10 @@ func run(args []string, stdout, stderr *os.File) error {
 const usage = `quote — Tiger OpenAPI market data (read-only)
 
 Fetches real-time briefs, historical bars, intraday timeline, market state and
-order-book depth. This command never places, modifies or cancels an order.
+order-book depth. -op selects a single endpoint instead: addon-entitlement
+reports the account's addon plan and the quota it leaves behind.
+
+This command never places, modifies or cancels an order.
 
 Credentials come from environment variables (TIGER_ID, TIGER_PRIVATE_KEY, ...)
 or a YAML file passed with -config. No credentials are needed for -h.
@@ -150,6 +167,7 @@ Examples:
   go run ./cmd/quote -symbols AAPL -timeline
   go run ./cmd/quote -symbols AAPL -depth -market US
   go run ./cmd/quote -market-state US
+  go run ./cmd/quote -op addon-entitlement
 
 Flags:
 `
