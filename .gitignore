@@ -21,11 +21,15 @@ tiger-go-demo
 /cmd/futures/futures
 /cmd/reference/reference
 /cmd/corporate/corporate
+/cmd/token/token
 
 # Go
 *.test
 *.out
 coverage.txt
+
+# Superpowers scratch (ledger, briefs, review packages)
+.superpowers/
 
 # Editors / OS
 .DS_Store

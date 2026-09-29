@@ -1,0 +1,46 @@
+#!/bin/sh
+# The verification gate for tiger-go-demo.
+#
+# This file is the gate, not `make`. The Makefile targets are a convenience
+# layer over the same four commands, so the checks run on a machine with no
+# GNU make installed — which is the point: a gate that only runs on one
+# contributor's machine is not a gate.
+#
+#   1. gofmt        formatting, including line endings
+#   2. go vet       the standard correctness checks
+#   3. go test      the suite
+#   4. coverage     the SDK coverage assertion (its own package, listed
+#                   separately so its failure is unambiguous)
+#
+# The first failure exits non-zero. Every step must pass.
+set -eu
+
+GO="${GO:-go}"
+
+# gofmt is checked with -l rather than run, because a gate that rewrites the
+# tree cannot be a gate: a contributor running it to find out whether their
+# commit is clean must not have it silently fixed first.
+fmt=$("$GO" fmt ./... 2>/dev/null || true)
+if [ -n "$fmt" ]; then
+	echo "gofmt: these files were not formatted:"
+	echo "$fmt"
+	echo "fix with: $GO fmt ./..."
+	exit 1
+fi
+echo "gofmt: clean"
+
+"$GO" vet ./...
+
+# -race needs cgo, which needs a C toolchain. Windows contributors usually have
+# neither, so the suite still has to pass without it. Set TIGER_NO_RACE=1 (or
+# use `make test-norace`) to skip it deliberately; the race detector is the
+# better default, so skipping is the opt-out rather than the rule.
+if [ "${TIGER_NO_RACE:-0}" = "1" ]; then
+	"$GO" test -count=1 ./...
+else
+	"$GO" test -count=1 -race ./...
+fi
+
+"$GO" test -count=1 -run TestSDKCoverage ./test/
+
+echo "verify: ok"
