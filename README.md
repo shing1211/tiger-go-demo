@@ -12,7 +12,7 @@ Three commands, plus four read-only data commands:
 | `cmd/futures` | Contract metadata (exchanges, current/all/continuous contracts, trading times) plus quotes, k-lines, depth, ticks | **No** — read-only |
 | `cmd/reference` | Symbol lists and names, stock details, fundamentals, financial series, FX, short interest, trading calendar, market scanner, industries | **No** — read-only |
 | `cmd/corporate` | Dividends, splits, earnings calendar, IPOs, symbol changes, delistings, capital flow, HK warrants, fund NAVs | **No** — read-only |
-| `cmd/trade` | Account assets, positions, order list; place / modify / cancel behind a hard gate | **Yes**, behind two independent gates |
+| `cmd/trade` | 29 read commands — account state, orders, contracts, funds, transfers, option exercise — plus place / modify / cancel behind a hard gate | **Yes**, behind two independent gates |
 | `cmd/push` | Real-time push feed (TCP + TLS + Protobuf): quotes, ticks, depth, order/position/asset updates | **No** — read-only |
 
 Only `cmd/trade` has a write path at all. The other six binaries never construct a
@@ -113,9 +113,23 @@ No order was sent to Tiger. Set TIGER_DRY_RUN=false AND pass --confirm-live to s
 
 All three write paths — `place`, `modify`, `cancel` — funnel through the single
 function `config.Writable()` in `internal/config/config.go`. There is no second
-route to a write. Read-only operations (`assets`, `positions`, `orders`,
-`active-orders`, `preview`) ignore the gate, since `preview` asks Tiger to
-validate an order without placing it.
+route to a write.
+
+The 29 other `trade` commands are reads and ignore the gate. `preview` is the
+easy case to reason about: it asks Tiger to validate an order without placing
+it, so it is a read with respect to the book even though it costs a round trip.
+The other 28 are ordinary queries — account state, order history, contracts,
+funds, transfers, option-exercise previews — and none of them can mutate
+anything.
+
+That separation is **structural, not conventional**. `cmd/trade` is split across
+two files: `main.go` holds the flag set, the gate and the three write paths;
+`reads.go` holds the read-only endpoints. No function in `reads.go` takes a
+`*config.Config`, so the value that owns the gate is never passed in and the
+gate is not reachable from that file. Adding a write there would require
+changing a handler signature, which is exactly the review signal you want.
+`cmd/trade/dispatch_test.go` pins this down — see
+[Tests](#tests-for-the-write-gate).
 
 The six read-only commands (`quote`, `options`, `futures`, `reference`,
 `corporate`, `push`) do not participate in the gate at all, and that is
@@ -389,7 +403,25 @@ All four read-only data commands share these, alongside their own:
 tells you when rows were dropped, so a broad query never looks complete.
 `-h` works with no credentials and exits 0.
 
-### `trade` — account and orders
+### `trade` — account, orders and 3 gated writes
+
+`-command` selects one of **32** operations: **29 reads** that ignore the write
+gate, and **3 writes** (`place`, `modify`, `cancel`) that cannot run without it.
+
+| Group | `-command` values |
+|---|---|
+| account | `assets`, `positions`, `prime-assets`, `aggregate-assets`, `analytics-asset`, `managed-accounts` |
+| orders | `orders`, `active-orders`, `inactive-orders`, `filled-orders`, `get-order`, `order-transactions`, `preview` |
+| contracts | `contract`, `contract3`, `contracts`, `quote-contract`, `derivative-contracts` |
+| estimates | `estimate-tradable-quantity` |
+| funds | `segment-fund-available`, `segment-fund-history`, `fund-details`, `funding-history` |
+| transfers | `position-transfer-records`, `position-transfer-detail`, `position-transfer-external-records` |
+| options | `option-exercise-check`, `option-exercise-positions`, `option-exercise-records` |
+| **writes** | `place`, `modify`, `cancel` — gated, see [Safety model](#safety-model) |
+
+Every read is in `cmd/trade/reads.go` and takes a `tradeClient` and an `options`
+value but **not** a `*config.Config`, which is what makes "a read cannot reach
+the write gate" a property of the code rather than a promise in a comment.
 
 ```bash
 # Read-only queries (no gate needed)
@@ -397,6 +429,41 @@ go run ./cmd/trade -command assets
 go run ./cmd/trade -command positions
 go run ./cmd/trade -command orders -limit 20
 go run ./cmd/trade -command active-orders -states NEW,HELD
+go run ./cmd/trade -command filled-orders
+go run ./cmd/trade -command get-order -order-id 123456
+go run ./cmd/trade -command order-transactions -symbol AAPL
+
+# Aggregated balances and P&L
+go run ./cmd/trade -command prime-assets
+go run ./cmd/trade -command aggregate-assets -base-currency USD
+go run ./cmd/trade -command analytics-asset -since-date 2025-01-01
+go run ./cmd/trade -command managed-accounts
+
+# Contract lookups. The derivative ones need -sec-type OPT/WAR/IOPT and an expiry.
+go run ./cmd/trade -command contract -symbol AAPL
+go run ./cmd/trade -command contract3 -symbol AAPL
+go run ./cmd/trade -command contracts -symbols AAPL,MSFT
+go run ./cmd/trade -command quote-contract -symbol AAPL -sec-type OPT -expiry 20260619
+go run ./cmd/trade -command derivative-contracts -symbols AAPL -sec-type OPT
+
+# Sizing: what could this account actually trade right now?
+go run ./cmd/trade -command estimate-tradable-quantity -symbol AAPL -action BUY
+
+# Funds, including the read side of the segment-fund transfer endpoints
+go run ./cmd/trade -command segment-fund-available
+go run ./cmd/trade -command segment-fund-history
+go run ./cmd/trade -command fund-details -limit 10
+go run ./cmd/trade -command funding-history
+
+# Position-transfer records (the transfer itself is a write, and is absent)
+go run ./cmd/trade -command position-transfer-records
+go run ./cmd/trade -command position-transfer-detail -transfer-id t1
+go run ./cmd/trade -command position-transfer-external-records
+
+# Option exercise: the pre-flight check and the history, but not submit/cancel
+go run ./cmd/trade -command option-exercise-positions -type Exercise
+go run ./cmd/trade -command option-exercise-check -contract-id 123456
+go run ./cmd/trade -command option-exercise-records
 
 # Validate an order with Tiger without placing it (allowed in dry-run)
 go run ./cmd/trade -command preview -symbol AAPL -quantity 1 -limit-price 100
@@ -414,6 +481,20 @@ TIGER_DRY_RUN=false go run ./cmd/trade -command cancel -order-id 12345 --confirm
 ```
 
 Order types: `LMT`, `MKT`, `STP`, `STP_LMT`. Time in force: `DAY`, `GTC`, `OPG`.
+
+**Deliberately not exposed.** Six `TradeClient` methods mutate the account and
+are therefore not wired up at all: `PlaceForexOrder`, `TransferSegmentFund`,
+`CancelSegmentFund`, `TransferPosition`, `OptionExerciseSubmit` and
+`OptionExerciseCancel`. `SetSecretKey` is a local struct-field assignment with
+no HTTP call at all, so there is nothing to gate and nothing to route. The
+*read* side of five of those six operations is available above
+(`segment-fund-available` and `segment-fund-history` sit on the same
+`SegmentFundRequest` shape as the transfer and cancel; `funding-history` shares
+the `transfer_fund` endpoint with `TransferSegmentFund`;
+`position-transfer-records` is the read side of `TransferPosition`; and
+`option-exercise-check` / `option-exercise-records` are the read side of the
+exercise submits). The sixth, `PlaceForexOrder`, has no read counterpart in the
+SDK.
 
 ### `push` — real-time feed (read-only)
 
@@ -492,7 +573,10 @@ tiger-go-demo/
 │   ├── futures/            futures market data (read-only)
 │   ├── reference/          reference + fundamental data (read-only)
 │   ├── corporate/          corporate actions, warrants, funds (read-only)
-│   ├── trade/main.go       account + gated order writes
+│   ├── trade/
+│   │   ├── main.go         flag set, write gate, the 3 write paths
+│   │   ├── reads.go        the 24 read-only endpoints
+│   │   └── dispatch_test.go  reads bypass the gate; writes do not
 │   └── push/main.go        real-time push subscriptions
 ├── internal/
 │   ├── config/             env + YAML loader, validation, redaction, write gate
@@ -518,40 +602,146 @@ exposes no trade client, which is why those commands cannot place an order.
 
 ## SDK coverage
 
-Of the SDK's 117 exported client methods (78 on `QuoteClient`, 39 on
-`TradeClient`), this project now exercises **79**:
+Of the SDK's **117** exported client methods (**78** on `QuoteClient`, **39**
+on `TradeClient`), this project now exercises **102**:
 
-| | Before | After |
-|---|---|---|
-| Overall | 13 / 117 | **79 / 117** |
-| `QuoteClient` (read-only) | 8 / 78 | **71 / 78** |
-| `TradeClient` | 5 / 39 | 8 / 39 |
+| | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` |
+|---|---|---|---|
+| Overall | 13 / 117 | 79 / 117 | **102 / 117** |
+| `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | **70 / 78** |
+| `TradeClient` | 8 / 39 | 8 / 39 | **32 / 39** |
 
-The four new data commands add **66 previously-unused SDK methods**, covering
-the option, futures, reference/fundamental and corporate-action endpoints. The
-`TradeClient` row barely moves on purpose: this is a read-only data demo, and
-every remaining trade method mutates account state.
+(The middle column is the state at commit `83e12a6`; the right-hand column is
+the working tree. Both are re-derivable with the loop below against a
+`git worktree` of the earlier commit.)
 
-The 7 uncovered quote methods are deliberate:
+You can re-derive all three numbers without trusting this table:
 
-- **5 deprecated aliases** — `GetBars`, `GetBarsByPage`, `GetBrief`,
-  `GetOptionBrief` and `GetWarrantBriefs`. The SDK marks these `Deprecated:`;
-  the commands call the non-deprecated replacement instead.
-- **`GrabQuotePermission`** — this *claims* a market-data permission, changing
-  account state. It is not a read, so it is deliberately left out.
-- **`GetAddonEntitlement`** — returns the account's addon plan. Left out as
-  non-demo material.
+```console
+$ TG=$(go env GOMODCACHE)/github.com/tigerfintech/openapi-go-sdk@v0.5.2
+$ grep -rhoE '^func \([a-z] \*(Quote|Trade)Client\) [A-Z][A-Za-z0-9]*' "$TG" --include=*.go \
+    | sed -E 's/.*\) //' | sort -u \
+  | while read -r m; do
+      grep -rqE "\.$m\(" cmd/ || echo "UNCOVERED: $m"
+    done
+UNCOVERED: GetAddonEntitlement
+UNCOVERED: GetBars
+UNCOVERED: GetBarsByPage
+UNCOVERED: GetBrief
+UNCOVERED: GetOptionBrief
+UNCOVERED: GetStockDelayBriefs
+UNCOVERED: GetWarrantBriefs
+UNCOVERED: GrabQuotePermission
+UNCOVERED: CancelSegmentFund
+UNCOVERED: OptionExerciseCancel
+UNCOVERED: OptionExerciseSubmit
+UNCOVERED: PlaceForexOrder
+UNCOVERED: SetSecretKey
+UNCOVERED: TransferPosition
+UNCOVERED: TransferSegmentFund
+$ # 15 uncovered -> 102 of 117 covered
+```
 
-The 31 uncovered trade methods are all account-mutating (order placement,
-position and segment-fund transfers, option exercise, secret-key rotation,
-prime/institutional assets, forex orders) or institution-specific account
-queries with no meaningful demo. They are out of scope for a read-only data
-demo, and every one of them would need the write gate in front of it.
+`QuoteClient` goes **down** by one, not up, when `reads.go` lands.
+`cmd/reference` used to call `GetStockDelayBriefs`, a deprecated alias, behind a
+`-delay-mins` flag that existed only to select it. Both the call and the flag
+are gone; `-op delayed` now calls the non-deprecated `GetDelayedQuote`. That is
+a fix, not a regression, and it is the reason the quote count drops while the
+overall count rises by 24.
 
-Explicitly skipped as non-demo material, per the SDK surface:
-`PositionTransfer*`, `TransferPosition`, `TransferSegmentFund`, `SegmentFund*`,
-`PrimeAssets`, `PlaceForexOrder`, `GrantQuotePermission`, `GrabQuotePermission`
-and `GetAddonEntitlement`.
+### What the 15 uncovered methods actually are
+
+**8 on `QuoteClient`:**
+
+- **6 deprecated aliases** — `GetBrief`, `GetBars`, `GetBarsByPage`,
+  `GetOptionBrief`, `GetWarrantBriefs` and `GetStockDelayBriefs`. Each carries a
+  `// Deprecated:` line in `quote/quote_client.go` pointing at a replacement
+  (`GetRealTimeQuote`, `GetKline`, `GetKlineByPage`, `GetOptionQuote`,
+  `GetWarrantQuote`, `GetDelayedQuote`). The commands call the replacements.
+  Every deprecated symbol reachable from this repo — those 6 methods plus
+  `tigeropen.Version`, `model.MarketScannerTags`, `model.BarsRequest`,
+  `model.BarsByPageRequest` and `OrderRequest.IsQuantityByAmount` — now has
+  **zero** call sites, which is checkable:
+
+  ```console
+  $ for s in GetBrief GetBars GetBarsByPage GetOptionBrief GetWarrantBriefs \
+             GetStockDelayBriefs tigeropen.Version MarketScannerTags \
+             BarsRequest BarsByPageRequest IsQuantityByAmount; do
+      printf '%-24s %s\n' "$s" "$(grep -rn "\b$s\b" --include=*.go . | wc -l)"
+    done
+  ```
+
+- **`GrabQuotePermission`** — *claims* a market-data permission, so it changes
+  account state. It is not a read, and it is deliberately left out.
+
+- **`GetAddonEntitlement`** (`quote/quote_client.go:418`, wire method
+  `addon_entitlements`) — a genuine read that returns the account's addon plan
+  entitlements. It is **still uncovered**, and that is an open gap, not a
+  principled omission. It is the one method in this repo that could be added
+  without any safety argument against it; nobody wired it up.
+
+**7 on `TradeClient`:**
+
+- **6 account-mutating methods** — `PlaceForexOrder`, `TransferSegmentFund`,
+  `CancelSegmentFund`, `TransferPosition`, `OptionExerciseSubmit`,
+  `OptionExerciseCancel`. Each would need the write gate in front of it, and
+  that is exactly why none is wired up. Their *read* counterparts are covered
+  where the SDK has any.
+- **`SetSecretKey`** — not an API call at all. It is a single in-memory
+  assignment (`c.secretKey = key`) on the client struct. There is no HTTP
+  request, nothing to gate, and nothing to route.
+
+So: of the 7 uncovered trade methods, **6 write and 1 is not a call at all**.
+None of them is a read that was skipped for being awkward — the read side of
+every one of those operations is now covered by `reads.go`.
+
+An earlier version of this README claimed all 31 previously-uncovered trade
+methods were account-mutating and would each need the write gate. That was
+wrong. Exactly **24 of the 31 were plain reads**, and all 24 are now covered:
+
+```
+AggregateAssets      AnalyticsAsset       Contract             Contract3
+Contracts            DerivativeContracts  EstimateTradableQuantity
+FilledOrders         FundDetails          FundingHistory       GetOrder
+InactiveOrders       ManagedAccounts      OptionExerciseCheck
+OptionExercisePositions  OptionExerciseRecords  OrderTransactions
+PositionTransferDetail   PositionTransferExternalRecords
+PositionTransferRecords  PrimeAssets    QuoteContract
+SegmentFundAvailable SegmentFundHistory
+```
+
+It also listed `GrantQuotePermission` as skipped — **no such method exists in
+SDK v0.5.2**; only `GrabQuotePermission` does.
+
+### How to read the coverage claim
+
+This is a **static** check. It proves a method is *referenced from `cmd/`*, not
+that it was *exercised against a live Tiger account*. Nothing in this repo has
+run with valid credentials — see the "This project has NOT been validated
+against the live Tiger API" section near the top of this README.
+
+### There is no REST here, and no HTTP verbs
+
+Tiger OpenAPI is **not** a REST API, and the SDK does not pretend otherwise.
+Every `QuoteClient` and `TradeClient` method is a `POST` to a single gateway
+URL with a JSON `"method"` field naming the operation:
+
+```go
+// client/http_client.go:373 in tigerfintech/openapi-go-sdk@v0.5.2
+req, err := http.NewRequest("POST", c.config.ServerURL, strings.NewReader(string(jsonData)))
+```
+
+There is no URL path to get wrong, no `GET`/`POST`/`DELETE` distinction to
+respect, and no 404-vs-200 signal. The endpoint is selected by a string —
+`quote_real_time`, `quote_contract`, `addon_entitlements`, `place_order` — which
+is why this README talks about *wire methods* rather than paths and verbs. The
+only place the SDK uses a different verb at all is the push feed, which is a
+TCP + TLS + Protobuf socket rather than HTTP.
+
+**A `POST` is not a mutation**, and the coverage split above is drawn on "does
+this change account state", not on the HTTP verb. `EstimateTradableQuantity`
+costs a real round trip against the live account and sits with the reads
+precisely because it cannot place anything.
 
 ---
 
@@ -577,6 +767,48 @@ gofmt -l .         # must print nothing
 go build ./...
 go vet ./...
 go test -race ./...
+```
+
+### Tests for the write gate
+
+`cmd/trade/dispatch_test.go` is the test that makes the safety claim checkable
+rather than merely asserted. It runs with dry-run **on** and `--confirm-live`
+**off** — the configuration in which `config.Writable` refuses every write — and
+asserts four things:
+
+- **Every one of the 29 reads is in the table**, and the table's length is
+  checked against `readCommands` at run time, so a command added to
+  `readCommands` without a test fails the build rather than silently going
+  untested.
+- **Each read returns `nil`** against a fake client under that refused-write
+  config. A read that has been through the gate could not do this.
+- **Each read calls exactly the one SDK method it is supposed to.** The fake
+  records the method name; a read that quietly grew a second SDK call fails.
+- **Each of the 3 writes returns a `config.IsSafetyError` and the fake's
+  `called` field is still empty** — i.e. the refusal happened before any SDK
+  call, not after a failed one.
+
+Two further tests pin the edges: an unknown `-command` names itself in the error
+and is not classified as a credential or safety failure, and a read missing an
+input it cannot fill in (`-symbol`, `-expiry`, `-transfer-id`, `-contract-id`,
+a non-derivative `-sec-type`, …) refuses locally, naming the flag, without
+reaching the SDK.
+
+The structural half of the guarantee is not something a test can assert at
+runtime — a function that took a `*config.Config` would still work. It is
+enforced by the signatures: **no handler in `reads.go` accepts a
+`*config.Config`**, so the gate's owner is never passed in and the gate is
+unreachable from that file. The test proves the consequence; the signature is
+the cause.
+
+```console
+$ go test -race ./cmd/trade/ -v
+--- PASS: TestReadCommandsBypassTheGate (0.02s)      # 29 subtests, one per read
+--- PASS: TestWritesAreRefusedByDefault (0.00s)       # 3 subtests, one per write
+--- PASS: TestUnknownCommandIsRejected (0.00s)
+--- PASS: TestMissingInputsAreRejectedLocally (0.01s) # 9 subtests
+PASS
+ok  	github.com/shing1211/tiger-go-demo/cmd/trade	1.089s
 ```
 
 ---
