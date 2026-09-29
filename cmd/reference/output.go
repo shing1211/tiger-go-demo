@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 // deadline, call exactly one SDK method, print. The SDK error is always wrapped
 // with the endpoint name so a failure says which call produced it.
 
-var out = os.Stdout
+var out io.Writer = os.Stdout
 
 // ---- symbol reference ----
 
@@ -794,6 +795,11 @@ func opQuotePermission(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 }
 
 // opTradeRank returns the market's movers board.
+//
+// It is split from printTradeRank so the rendering can be reached without a live
+// account: qc is a concrete *sdkquote.QuoteClient with no interface and no
+// injectable transport, so anything holding one is untestable offline. The call
+// stays here; everything that formats a row moves below.
 func opTradeRank(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -802,16 +808,7 @@ func opTradeRank(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 	if err != nil {
 		return fmt.Errorf("get trade rank (market=%s): %w", o.Market, err)
 	}
-	rocli.Section(out, "trade rank (market=%s)", o.Market)
-	fmt.Fprintf(out, "  %-12s %-28s %10s %9s %12s %16s\n", "SYMBOL", "NAME", "LAST", "CHG%", "VOLUME", "AMOUNT")
-	for i, r := range ranks {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(ranks), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-28s %10.4f %8.2f%% %12d %16.2f\n",
-			rocli.Dash(r.Symbol), rocli.Dash(r.Name), r.LatestPr, r.ChangeRate, r.Volume, r.Amount)
-	}
+	printTradeRank(out, o.Market, ranks, o.Limit)
 	return nil
 }
 
@@ -860,8 +857,59 @@ func opTimelineHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 		return fmt.Errorf("get timeline history (%s, date=%s): %w", strings.Join(symbols, ","), rocli.DashOr(o.beginDate, "today"), err)
 	}
 	rocli.Section(out, "historical timeline")
+	printTimelineHistoryRows(out, tls, o.Limit)
+	return nil
+}
+
+// ---- shared print helpers ----
+
+// printTradeRank renders the movers board.
+//
+// An empty result says so rather than printing a bare header, because a table
+// with column headings and no rows reads like a query that returned nothing for a
+// reason the reader has to guess at.
+func printTradeRank(w io.Writer, market string, ranks []sdkmodel.TradeRankItem, limit int) {
+	rocli.Section(w, "trade rank (market=%s)", market)
+	if len(ranks) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(w, "  %-12s %-28s %10s %9s %12s %16s\n", "SYMBOL", "NAME", "LAST", "CHG%", "VOLUME", "AMOUNT")
+	for i, r := range ranks {
+		if i >= limit {
+			rocli.Truncate(w, i, len(ranks), limit)
+			break
+		}
+		fmt.Fprintf(w, "  %-12s %-28s %10.4f %8.2f%% %12d %16.2f\n",
+			rocli.Dash(r.Symbol), rocli.Dash(r.Name), r.LatestPr, r.ChangeRate, r.Volume, r.Amount)
+	}
+}
+
+// printTimelineHistory renders intraday and extended-session timelines.
+//
+// The three session buckets are named even when one is absent, and the two ways a
+// bucket can be unsatisfying are kept distinct: a nil bucket means the server sent
+// no such block, while a bucket with no items means the block arrived and was
+// empty. Those are different facts, so neither silently disappears.
+func printTimelineHistory(w io.Writer, tls []sdkmodel.Timeline) {
+	rocli.Section(w, "historical timeline")
+	if len(tls) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
+	printTimelineHistoryRows(w, tls, defaultTimelinePointLimit)
+}
+
+// defaultTimelinePointLimit caps points per session bucket. A timeline is a dense
+// series, and a 2000-point bucket would bury every other line in the output.
+const defaultTimelinePointLimit = 20
+
+// printTimelineHistoryRows is the row loop, separated so opTimelineHistory can
+// apply the caller's -limit while the printer keeps a sensible default. Both call
+// the same rendering, so there is one format and not two.
+func printTimelineHistoryRows(w io.Writer, tls []sdkmodel.Timeline, limit int) {
 	for _, t := range tls {
-		fmt.Fprintf(out, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
+		fmt.Fprintf(w, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
 		for _, b := range []struct {
 			name   string
 			bucket *sdkmodel.TimelineBucket
@@ -871,23 +919,21 @@ func opTimelineHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 			{"after_hours", t.AfterHours},
 		} {
 			if b.bucket == nil || len(b.bucket.Items) == 0 {
+				fmt.Fprintf(w, "  [%s] no data\n", b.name)
 				continue
 			}
-			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
+			fmt.Fprintf(w, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
 			for i, it := range b.bucket.Items {
-				if i >= o.Limit {
-					rocli.Truncate(out, i, len(b.bucket.Items), o.Limit)
+				if i >= limit {
+					rocli.Truncate(w, i, len(b.bucket.Items), limit)
 					break
 				}
-				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
+				fmt.Fprintf(w, "    %-22s price=%.4f avg=%.4f volume=%d\n",
 					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
 			}
 		}
 	}
-	return nil
 }
-
-// ---- shared print helpers ----
 
 func printBriefs(briefs []sdkmodel.Brief, limit int) {
 	fmt.Fprintf(out, "  %-12s %10s %10s %9s %12s %-20s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")

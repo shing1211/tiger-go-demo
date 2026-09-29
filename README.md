@@ -57,7 +57,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (11 packages, 689 cases — see [Test suite](#test-suite)), all eight
+  tests pass (14 packages, 737 cases — see [Test suite](#test-suite)), all eight
   binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -1731,15 +1731,15 @@ ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 
 ### Test suite
 
-`go test ./...` puts **11** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **689**, across
-201 top-level test functions:
+`go test ./...` puts **14** packages behind tests and passes. The rough case
+count — every `=== RUN` and every subtest `--- PASS` line — is **737**, across
+223 top-level test functions:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-689
+737
 $ go test -count=1 ./... | grep -c '^ok'
-11
+14
 ```
 
 Per-package statement coverage:
@@ -1752,29 +1752,29 @@ Per-package statement coverage:
 | `internal/config` | **81.4%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
 | `internal/sdkcoverage` | **61.7%** | The client-surface walk, the AST call-site match, the allow-list's shape, and the reason derivation — each with a control test |
 | `cmd/token` | **62.9%** | Flag resolution, the fixed action order, the nil token manager, and "the value is never printed" |
-| `cmd/trade` | **58.1%** | The write-gate dispatch table (the load-bearing part) |
-| `internal/rocli` | **39.8%** | Exit codes, row formatting, truncation |
+| `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
+| `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
 | `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
-| `cmd/options` | **10.3%** | Option-identifier parsing |
-| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **0.0%** | Nothing yet. See the note below. |
+| `cmd/options` | **10.1%** | Option-identifier parsing, and the `-op` vocabulary |
+| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **2-5%** | The `-op` vocabulary, plus four renderers split from their SDK calls. The rest is a named ceiling — see below. |
 | `test` | no statements | Holds only tests: the read-only classification and the coverage enforcement point |
 
 ```console
 $ go test -cover ./...
-	github.com/shing1211/tiger-go-demo/cmd/corporate		coverage: 0.0% of statements
-	github.com/shing1211/tiger-go-demo/cmd/futures		coverage: 0.0% of statements
-ok  	github.com/shing1211/tiger-go-demo/cmd/options	coverage: 10.3% of statements
-ok  	github.com/shing1211/tiger-go-demo/cmd/push	coverage: 86.0% of statements
-ok  	github.com/shing1211/tiger-go-demo/cmd/quote	coverage: 21.2% of statements
-	github.com/shing1211/tiger-go-demo/cmd/reference		coverage: 0.0% of statements
-ok  	github.com/shing1211/tiger-go-demo/cmd/token	coverage: 62.9% of statements
-ok  	github.com/shing1211/tiger-go-demo/cmd/trade	coverage: 58.1% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/config	coverage: 81.4% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/logging	coverage: 100.0% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/rocli	coverage: 39.8% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/sdkcoverage	coverage: 61.7% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/tigersdk	coverage: 98.7% of statements
-ok  	github.com/shing1211/tiger-go-demo/test	coverage: [no statements]
+ok  	cmd/corporate	coverage: 3.4% of statements
+ok  	cmd/futures	coverage: 2.4% of statements
+ok  	cmd/options	coverage: 10.1% of statements
+ok  	cmd/push	coverage: 86.0% of statements
+ok  	cmd/quote	coverage: 21.2% of statements
+ok  	cmd/reference	coverage: 4.7% of statements
+ok  	cmd/token	coverage: 62.9% of statements
+ok  	cmd/trade	coverage: 57.9% of statements
+ok  	internal/config	coverage: 81.4% of statements
+ok  	internal/logging	coverage: 100.0% of statements
+ok  	internal/rocli	coverage: 48.2% of statements
+ok  	internal/sdkcoverage	coverage: 61.7% of statements
+ok  	internal/tigersdk	coverage: 98.7% of statements
+ok  	test	coverage: [no statements]
 ```
 
 Four of those numbers need a caveat, because a percentage can mean more than it
@@ -1798,15 +1798,17 @@ does:
   The entitlement printer avoids the problem by being split from the call
   (`printAddonEntitlement` calls, `printEntitlement` renders), so the rendering
   — which is where the absent-versus-zero subtlety lives — is testable offline.
-- **`cmd/corporate`, `cmd/futures` and `cmd/reference` are at 0.0%, and that is a
-  stated ceiling rather than an oversight.** Every `op*` function in those three
-  takes a `*sdkquote.QuoteClient`, a concrete SDK struct with no interface, no
-  injectable constructor and no transport seam — the same blocker as `cmd/quote`
-  above, and the same fix: split the call from the rendering. Four renderers have
-  been split that way and are tested; the other 24 `reference` endpoints, and
-  every endpoint in `corporate` and `futures` beyond the contract-metadata
-  printers, are **not** tested. The blocker is real; the ceiling is named rather
-  than left for a reader to discover.
+- **`cmd/corporate`, `cmd/futures` and `cmd/reference` are at 2-5%, and the rest
+  is a stated ceiling rather than an oversight.** Every `op*` function in those
+  three takes a `*sdkquote.QuoteClient`, a concrete SDK struct with no interface,
+  no injectable constructor and no transport seam — the same blocker as
+  `cmd/quote` above, and the same fix: split the call from the rendering. Four
+  renderers have been split that way and are tested (`printTradeRank` and
+  `printTimelineHistory` in `reference`; `printContracts` in `futures`;
+  `printWarrants` in `corporate`, which already took model values and needed only
+  a test). **The other 24 `reference` endpoints, and every endpoint in
+  `corporate` and `futures` beyond those two, are not tested.** The blocker is
+  real; the ceiling is named here rather than left for a reader to discover.
 - **`internal/sdkcoverage` at 61.7% is the number that matters least, and it is
   worth saying why.** It covers the walk, the AST match, the allow-list's shape
   and the reason derivation, each with a control test. The uncovered remainder is

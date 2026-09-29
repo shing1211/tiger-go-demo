@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 // deadline, call exactly one SDK method, print. The SDK error is always wrapped
 // with the endpoint name so a failure says which call produced it.
 
-var out = os.Stdout
+var out io.Writer = os.Stdout
 
 // ---- exchange list ----
 

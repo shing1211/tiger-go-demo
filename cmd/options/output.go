@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -20,7 +21,7 @@ import (
 
 // out is the writer these handlers print to. Every Tiger read in this command
 // goes to stdout, matching cmd/quote.
-var out = os.Stdout
+var out io.Writer = os.Stdout
 
 // ---- expiration ----
 
