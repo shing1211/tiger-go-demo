@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	sdkclient "github.com/tigerfintech/openapi-go-sdk/client"
@@ -225,10 +226,23 @@ func Push(cfg *config.Config, opts PushOptions) (*sdkpush.PushClient, error) {
 // file on its own, with no exported name that exposes the path.
 const sdkTokenFileName = "tiger_openapi_token.properties"
 
+// sdkTokenFileEnv is the SDK's env var for "read the token from this file
+// instead" (config/client_config.go:272). It reaches the same field as the token
+// file above, so it is neutralised by the same clearing — but it escapes both
+// directory scans, since it can name a path anywhere on disk.
+const sdkTokenFileEnv = "TIGEROPEN_TOKEN_FILE"
+
 // WarnStrayProperties prints a warning for each of the files the SDK discovers
-// on its own: the config and token files in dir, and the config file in the
-// user's home directory. We neutralise them, but a user who edited one deserves
-// to know why it has no effect.
+// on its own: the config and token files in dir, the config file in the user's
+// home directory, and the file $TIGEROPEN_TOKEN_FILE points at. We neutralise
+// them, but a user who edited one deserves to know why it has no effect.
+//
+// The bare env vars ($TIGEROPEN_TOKEN, $TIGEROPEN_TIGER_ID and friends) stay
+// silent, as designed: a value the user exported is already visible to them in
+// their own shell, and warnStrayFile prints a path, so it could never be handed
+// a token value. $TIGEROPEN_TOKEN_FILE is the exception because it is
+// file-shaped — the file it names is something they may not know exists, and it
+// can sit outside both directories the scans above cover.
 func WarnStrayProperties(dir string, w io.Writer) {
 	// The files are discovered by separate mechanisms — the config files by
 	// sdkconfig's auto-discovery list, the token file by the TokenManager it
@@ -243,6 +257,20 @@ func WarnStrayProperties(dir string, w io.Writer) {
 		warnStrayFile(w, p)
 	}
 	if p := filepath.Join(dir, sdkTokenFileName); fileExists(p) {
+		warnStrayFile(w, p)
+	}
+	// $TIGEROPEN_TOKEN_FILE is the one discovered input that is file-shaped but
+	// escapes both directory scans above: it can name a path anywhere on disk, so
+	// "we tell you about files" is otherwise an untrue implication. It goes last
+	// because it is also the least likely — a user has to have exported it
+	// deliberately, where the three files above are things someone left lying
+	// around. Its payload is the highest-consequence of the four (the bearer
+	// token), so being last in the output costs nothing.
+	//
+	// The raw value is what gets named, not the trimmed one: the SDK passes the
+	// raw os.Getenv result straight to the token manager, so the raw string is
+	// what it would actually open and the only one the user can recognise.
+	if p := os.Getenv(sdkTokenFileEnv); strings.TrimSpace(p) != "" && fileExists(p) {
 		warnStrayFile(w, p)
 	}
 }

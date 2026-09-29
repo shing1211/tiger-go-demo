@@ -866,6 +866,202 @@ func TestWarnStrayPropertiesNamesTheFile(t *testing.T) {
 // TestWarnStrayPropertiesMissingDirectory: a directory that does not exist must
 // not produce a warning and must not panic. The commands pass ".", but a
 // library caller could pass anything.
+// TestWarnStrayPropertiesNamesTheEnvTokenFile covers $TIGEROPEN_TOKEN_FILE, the
+// one discovered input that is a file but escapes every directory scan: the SDK
+// will read a token from any path in it, including one outside the working
+// directory and outside the home directory, so the three file checks above cannot
+// reach it by construction.
+//
+// The warning must name the path the user actually typed, since that string is
+// the only thing that identifies the variable to them — a resolved or cleaned
+// form would be recognisable to nobody.
+func TestWarnStrayPropertiesNamesTheEnvTokenFile(t *testing.T) {
+	dir := chdirTemp(t)
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.properties")
+	if err := os.WriteFile(elsewhere, []byte("token=redirected-token\n"), 0o600); err != nil {
+		t.Fatalf("write redirected token file: %v", err)
+	}
+	t.Setenv("TIGEROPEN_TOKEN_FILE", elsewhere)
+
+	var buf strings.Builder
+	WarnStrayProperties(dir, &buf)
+	got := buf.String()
+	if !strings.Contains(got, elsewhere) {
+		t.Errorf("warning should name the file $TIGEROPEN_TOKEN_FILE points at (%q), got:\n%s",
+			elsewhere, got)
+	}
+	if !strings.Contains(got, "IGNORED") {
+		t.Errorf("warning should say the file is ignored, got:\n%s", got)
+	}
+	if !strings.Contains(got, "redirect your orders") {
+		t.Errorf("warning should explain the consequence, got:\n%s", got)
+	}
+	// The token *value* must never reach the output. The file exists to prove
+	// the path is named, but printing what is inside it would leak the very
+	// credential this warning exists to neutralise.
+	if strings.Contains(got, "redirected-token") {
+		t.Errorf("warning leaked the token value, got:\n%s", got)
+	}
+	// The file is outside both scanned directories, so the other three checks
+	// cannot have produced this: it is the env var detection, not a coincidence.
+	if n := strings.Count(got, "warning: found"); n != 1 {
+		t.Errorf("expected exactly one warning for a file outside both scans, saw %d:\n%s", n, got)
+	}
+
+	// And the defence itself: the SDK really would have used it, and does not.
+	sc, err := NewClientConfig(testConfig())
+	if err != nil {
+		t.Fatalf("NewClientConfig: %v", err)
+	}
+	if sc.Token != "" {
+		t.Errorf("Token = %q, want empty ($TIGEROPEN_TOKEN_FILE redirected the SDK to %s)",
+			sc.Token, elsewhere)
+	}
+}
+
+// TestWarnStrayPropertiesNamesTheEnvTokenFileVerbatim pins the path formatting:
+// the value is reported exactly as exported, not cleaned, made absolute, or
+// joined onto a directory. The user typed it, so it is the only form they can
+// match against their own shell history or CI config.
+func TestWarnStrayPropertiesNamesTheEnvTokenFileVerbatim(t *testing.T) {
+	chdirTemp(t)
+	// A path with redundant elements that filepath.Clean would rewrite. Built by
+	// concatenation, not filepath.Join, which would clean them away here and the
+	// test would prove nothing.
+	root := t.TempDir()
+	p := root + string(filepath.Separator) + "sub" + string(filepath.Separator) +
+		".." + string(filepath.Separator) + "token.properties"
+	// The "sub" directory has to exist for the kernel to resolve "sub/..", so
+	// the path is both redundant and real.
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("token=v\n"), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+	t.Setenv("TIGEROPEN_TOKEN_FILE", p)
+
+	var buf strings.Builder
+	WarnStrayProperties(".", &buf)
+	got := buf.String()
+	if !strings.Contains(got, p) {
+		t.Errorf("warning should name the exported path verbatim (%q), got:\n%s", p, got)
+	}
+	// The "sub/.." segment is what a Clean or an Abs would have rewritten, so
+	// finding it in the output is the positive evidence that neither ran.
+	if !strings.Contains(got, "sub"+string(filepath.Separator)+"..") {
+		t.Errorf("warning should not normalise the exported path, got:\n%s", got)
+	}
+}
+
+// TestWarnStrayPropertiesEnvTokenFileIsExistenceBased pins the non-existent-path
+// decision: a $TIGEROPEN_TOKEN_FILE naming a file that is not there is silent,
+// exactly like the three file checks, which all gate on fileExists.
+//
+// Consistency wins over "a broken config is worth mentioning". This function
+// reports discovered files — files the SDK would actually read a token from —
+// and a path that does not exist is not one of them, so there is no stray file
+// to warn about. The empty value is the case the SDK would silently resolve to
+// the default file name instead (config/client_config.go:271-273), and that
+// default is check 3 above.
+func TestWarnStrayPropertiesEnvTokenFileIsExistenceBased(t *testing.T) {
+	chdirTemp(t)
+	missing := filepath.Join(t.TempDir(), "no-such-token.properties")
+	t.Setenv("TIGEROPEN_TOKEN_FILE", missing)
+
+	var buf strings.Builder
+	WarnStrayProperties(".", &buf)
+	if got := buf.String(); got != "" {
+		t.Errorf("a path that does not exist is not a discovered file, so nothing "+
+			"should be printed (wanted silence for %q), got:\n%s", missing, got)
+	}
+}
+
+// TestWarnStrayPropertiesEnvTokenFileEmptyIsSilent: an empty or whitespace-only
+// value points nowhere. The SDK falls back to its default token file name for an
+// empty value, which check 3 already covers, so a warning here would name a file
+// that does not exist — the exact failure the existing home-file test forbids.
+func TestWarnStrayPropertiesEnvTokenFileEmptyIsSilent(t *testing.T) {
+	for _, tc := range []struct{ name, value string }{
+		{"empty", ""},
+		{"whitespace only", "   \t "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chdirTemp(t)
+			t.Setenv("TIGEROPEN_TOKEN_FILE", tc.value)
+
+			var buf strings.Builder
+			WarnStrayProperties(".", &buf)
+			if got := buf.String(); got != "" {
+				t.Errorf("an empty $TIGEROPEN_TOKEN_FILE should be silent, got:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestWarnStrayPropertiesEnvTokenFileUnsetAddsNothing is the no-regression check:
+// with the variable unset the output is exactly the three file warnings it always
+// was, in the original order, with no fourth.
+func TestWarnStrayPropertiesEnvTokenFileUnsetAddsNothing(t *testing.T) {
+	dir := chdirTemp(t)
+	writeStrayProperties(t, dir)
+	writeStrayTokenFile(t, dir, "STRAY-TOKEN-VALUE")
+	home := writeStrayHomeProperties(t)
+
+	// chdirTemp already clears the variable, but the point of this test is that
+	// it is genuinely absent rather than set to "".
+	if err := os.Unsetenv("TIGEROPEN_TOKEN_FILE"); err != nil {
+		t.Fatalf("unset TIGEROPEN_TOKEN_FILE: %v", err)
+	}
+
+	var buf strings.Builder
+	WarnStrayProperties(dir, &buf)
+	got := buf.String()
+	if n := strings.Count(got, "warning: found"); n != 3 {
+		t.Errorf("want the three original warnings and no fourth, saw %d:\n%s", n, got)
+	}
+	for _, want := range []string{config.StrayPropertiesFileName, home, sdkTokenFileName} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the original warnings should still be there, missing %q:\n%s", want, got)
+		}
+	}
+	// Order is part of the contract with the user: working-dir config, home
+	// config, working-dir token, then the env var.
+	iDir := strings.Index(got, config.StrayPropertiesFileName)
+	iHome := strings.Index(got, home)
+	iTok := strings.Index(got, sdkTokenFileName)
+	if !(iDir < iHome && iHome < iTok) {
+		t.Errorf("warning order changed: dir=%d home=%d token=%d\n%s", iDir, iHome, iTok, got)
+	}
+}
+
+// TestWarnStrayPropertiesEnvTokenFileComesLast: the env var is the least likely
+// of the four (it takes a deliberate export) and so is printed after the three
+// files a user may simply have left lying around, even though its payload is the
+// most consequential.
+func TestWarnStrayPropertiesEnvTokenFileComesLast(t *testing.T) {
+	dir := chdirTemp(t)
+	writeStrayProperties(t, dir)
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.properties")
+	if err := os.WriteFile(elsewhere, []byte("token=v\n"), 0o600); err != nil {
+		t.Fatalf("write redirected token file: %v", err)
+	}
+	t.Setenv("TIGEROPEN_TOKEN_FILE", elsewhere)
+
+	var buf strings.Builder
+	WarnStrayProperties(dir, &buf)
+	got := buf.String()
+	if n := strings.Count(got, "warning: found"); n != 2 {
+		t.Fatalf("want two warnings (working-dir config, env token file), saw %d:\n%s", n, got)
+	}
+	if strings.Index(got, elsewhere) < strings.Index(got, config.StrayPropertiesFileName) {
+		t.Errorf("$TIGEROPEN_TOKEN_FILE should be warned about last, got:\n%s", got)
+	}
+}
+
+// TestWarnStrayPropertiesMissingDirectory: a directory that does not exist must
+// not produce a warning and must not panic. The commands pass ".", but a
+// library caller could pass anything.
 func TestWarnStrayPropertiesMissingDirectory(t *testing.T) {
 	chdirTemp(t)
 	var buf strings.Builder
