@@ -75,8 +75,57 @@ fmt-check: ## Fail if any file is unformatted
 tidy: ## Tidy go.mod / go.sum
 	$(GO) mod tidy
 
+# The uncovered set is asserted exactly, not counted: a new gap fails, and so
+# does a method that gained a call site (then you delete its line here).
+# Reasons are one word each; see README "What the 14 uncovered methods are".
+.PHONY: coverage-check
+coverage-check: ## Fail unless the uncovered SDK methods are exactly the allow-list
+	@set -eu; \
+	sdk=$$($(GO) list -m -f '{{.Version}}' github.com/tigerfintech/openapi-go-sdk); \
+	base="$$($(GO) env GOMODCACHE)/github.com/tigerfintech/openapi-go-sdk@$$sdk"; \
+	if [ ! -d "$$base" ]; then echo "SDK not in module cache: $$base"; exit 1; fi; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	all=$$tmp/all; got=$$tmp/got; want=$$tmp/want; \
+	for pair in quote:Quote trade:Trade; do \
+		f=$${pair%%:*}; c=$${pair##*:}; \
+		grep -hoE "^func \(c \*$${c}Client\) [A-Z][A-Za-z0-9]*" "$$base/$$f"/*.go \
+		  | sed -E 's/.*\) //'; \
+	done | sort -u > $$all; \
+	while read -r m; do \
+		grep -rqE "\.$$m\(" cmd/ internal/ || echo "$$m"; \
+	done < $$all > $$got; \
+	for e in GetBrief:deprecated GetBars:deprecated GetBarsByPage:deprecated \
+	         GetOptionBrief:deprecated GetWarrantBriefs:deprecated \
+	         GetStockDelayBriefs:deprecated GrabQuotePermission:mutating \
+	         PlaceForexOrder:mutating TransferSegmentFund:mutating \
+	         CancelSegmentFund:mutating TransferPosition:mutating \
+	         OptionExerciseSubmit:mutating OptionExerciseCancel:mutating \
+	         SetSecretKey:not-a-call; do echo "$$e"; done > $$tmp/allowed; \
+	sed 's/:.*//' $$tmp/allowed | sort > $$want; \
+	total=$$(wc -l < $$all | tr -d ' '); \
+	left=$$(wc -l < $$got | tr -d ' '); \
+	echo "sdk coverage: $$((total - left))/$$total methods covered, $$left uncovered"; \
+	if cmp -s $$got $$want; then \
+		echo "uncovered set matches the allow-list:"; \
+		sed 's/^/  /' $$tmp/allowed; \
+		exit 0; \
+	fi; \
+	echo "FAIL: the uncovered set is not the allow-list."; \
+	newgap=$$(comm -13 $$want $$got); \
+	fixed=$$(comm -23 $$want $$got); \
+	if [ -n "$$newgap" ]; then \
+		echo "not on the allow-list — cover it, or justify it and add a line above:"; \
+		for n in $$newgap; do echo "  UNCOVERED: $$n"; done; \
+	fi; \
+	if [ -n "$$fixed" ]; then \
+		echo "now covered — delete from the allow-list above:"; \
+		for n in $$fixed; do grep -E "^$$n:" $$tmp/allowed | sed 's/^/  /'; done; \
+	fi; \
+	exit 1
+
 .PHONY: verify
-verify: fmt-check vet test build ## Everything CI should run
+verify: fmt-check vet test build coverage-check ## Everything CI should run
 
 .PHONY: demo-dry-run
 demo-dry-run: ## Prove the safety gate refuses a real order (no credentials needed beyond dummy)
