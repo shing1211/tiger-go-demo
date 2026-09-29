@@ -220,6 +220,10 @@ Examples:
   go run ./cmd/reference -op industry-stocks -industry-id 1001
   go run ./cmd/reference -op kline-quota -symbols AAPL
   go run ./cmd/reference -op quote-permission
+  go run ./cmd/reference -op trade-metas -symbols AAPL
+  go run ./cmd/reference -op trade-rank -market US
+  go run ./cmd/reference -op overnight -symbols AAPL
+  go run ./cmd/reference -op timeline-history -symbols AAPL
   go run ./cmd/reference -op ticks -symbols AAPL -limit 5
   go run ./cmd/reference -op timeline -symbols AAPL
   go run ./cmd/reference -op delayed -symbols AAPL

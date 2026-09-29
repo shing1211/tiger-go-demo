@@ -57,7 +57,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (11 packages, 674 cases — see [Test suite](#test-suite)), all eight
+  tests pass (11 packages, 689 cases — see [Test suite](#test-suite)), all eight
   binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -396,6 +396,7 @@ go run ./cmd/options -op chain -symbols AAPL -greeks -itm in
 # Real-time quotes, k-lines, depth, ticks, timeline
 go run ./cmd/options -op quote    -ids "AAPL 250117C00200000,AAPL 250117P00200000"
 go run ./cmd/options -op kline    -ids "AAPL 250117C00200000" -period day -limit 20
+go run ./cmd/options -op kline-plain -ids "AAPL 250117C00200000" -period day -limit 20
 go run ./cmd/options -op depth    -ids "AAPL 250117C00200000"
 go run ./cmd/options -op ticks    -ids "AAPL 250117C00200000" -limit 5
 go run ./cmd/options -op timeline -ids "AAPL 250117C00200000"
@@ -468,6 +469,9 @@ go run ./cmd/reference -op overnight       -symbols AAPL
 go run ./cmd/reference -op trade-metas     -symbols AAPL
 go run ./cmd/reference -op kline-quota
 go run ./cmd/reference -op quote-permission
+go run ./cmd/reference -op trade-metas -symbols AAPL
+go run ./cmd/reference -op trade-rank -market US
+go run ./cmd/reference -op timeline-history -symbols AAPL
 ```
 
 `stock-fundamental` and `scanner-tags` return server-defined payloads and are
@@ -1728,12 +1732,12 @@ ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 ### Test suite
 
 `go test ./...` puts **11** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **674**, across
-200 top-level test functions:
+count — every `=== RUN` and every subtest `--- PASS` line — is **689**, across
+201 top-level test functions:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-674
+689
 $ go test -count=1 ./... | grep -c '^ok'
 11
 ```
@@ -1904,12 +1908,13 @@ $ openspec validate --specs --strict
 Totals: 6 passed, 0 failed (6 items)
 ```
 
-Six capabilities, 33 requirements:
+Seven capabilities, 42 requirements:
 
 | Spec | What it owns |
 |---|---|
 | `write-gate` | the two independent conditions that must both hold before a byte is sent, and that a refusal stops the method call |
-| `exit-codes` | the four statuses, the two classifications that are easiest to get wrong, and the two binaries that can never produce a refusal |
+| `command-classification` | that every command is classified read-only or write in **both** directions, that exactly one command writes, that a read-only command cannot reach an order write or produce a refusal, and that the classification is deliberate rather than inherited |
+| `exit-codes` | the four statuses, the two classifications that are easiest to get wrong, and the seven read-only binaries that can never produce a refusal |
 | `credential-defence` | all five SDK-discovered credential inputs neutralised, and the deliberate asymmetry in what is warned about |
 | `secret-redaction` | the exact form a secret takes in any printable rendering, and that an unset app secret is omitted rather than sent empty |
 | `sdk-coverage` | the coverage figure over all four client types, that every gap is a stated exclusion, the meaning of each exclusion reason, the known name-collision false positive, and that the split is drawn on account state rather than the HTTP verb |
