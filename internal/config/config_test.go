@@ -289,3 +289,82 @@ func TestWarnIfStrayPropertiesFile(t *testing.T) {
 		t.Error("the stray properties file should be detected")
 	}
 }
+
+// isolateHome points $HOME at an empty directory for the duration of the test,
+// so a stray file in the developer's real home directory cannot make these
+// assertions pass or fail. os.UserHomeDir reads $HOME on Unix and %USERPROFILE%
+// on Windows; both are set.
+func isolateHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
+}
+
+func TestWarnIfStrayHomePropertiesFile(t *testing.T) {
+	home := isolateHome(t)
+	if _, found := WarnIfStrayHomePropertiesFile(); found {
+		t.Error("no file should be reported in an empty home directory")
+	}
+
+	dir := filepath.Join(home, ".tigeropen")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, StrayPropertiesFileName)
+	if err := os.WriteFile(p, []byte("tiger_id=x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, found := WarnIfStrayHomePropertiesFile()
+	if !found {
+		t.Fatal("the home properties file should be detected")
+	}
+	// The path has to be usable, not merely present: a warning naming a path
+	// the user cannot delete is a warning they cannot act on.
+	if got != p {
+		t.Errorf("reported %q, want %q", got, p)
+	}
+}
+
+func TestWarnIfStrayHomePropertiesFileMissingHome(t *testing.T) {
+	isolateHome(t)
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "no-such-home"))
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	if p, found := WarnIfStrayHomePropertiesFile(); found {
+		t.Errorf("a home directory that does not exist cannot hold the file, got %q", p)
+	}
+
+	// A system with no home directory at all is not an error either. os.UserHomeDir
+	// fails when $HOME is empty or unset, and that must degrade to silence.
+	t.Setenv("HOME", "")
+	if p, found := WarnIfStrayHomePropertiesFile(); found {
+		t.Errorf("no home directory cannot hold the file, got %q", p)
+	}
+}
+
+// TestQuoteServerFallbackIsExplicit pins the default the README documents
+// (quote_server_url = server_url) at the point it is applied, including for a
+// Config assembled by hand rather than through Load.
+func TestQuoteServerFallbackIsExplicit(t *testing.T) {
+	p := writeYAML(t, "tiger_id: yaml-id\nprivate_key: pk\nserver_url: https://trade.example.invalid/gw\n")
+	cfg, err := Load(Options{ConfigPath: p, Getenv: envFrom(nil)})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.QuoteServerURL != cfg.ServerURL {
+		t.Errorf("quote server should follow the trade gateway, got %q vs %q",
+			cfg.QuoteServerURL, cfg.ServerURL)
+	}
+
+	// An explicit quote endpoint is not overwritten by the fallback.
+	p = writeYAML(t, "tiger_id: yaml-id\nprivate_key: pk\nquote_server_url: https://quote.example.invalid/gw\n")
+	cfg, err = Load(Options{ConfigPath: p, Getenv: envFrom(nil)})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.QuoteServerURL != "https://quote.example.invalid/gw" {
+		t.Errorf("explicit quote server should be kept, got %q", cfg.QuoteServerURL)
+	}
+}

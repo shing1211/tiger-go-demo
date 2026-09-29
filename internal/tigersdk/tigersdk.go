@@ -1,16 +1,19 @@
 // Package tigersdk builds SDK clients from our validated configuration.
 //
 // It exists to solve one specific upstream hazard: the Tiger SDK auto-discovers
-// ./tiger_openapi_config.properties (and ~/.tigeropen/...) and will silently
-// override credentials you passed explicitly. Every ClientConfig we hand out is
-// re-asserted after construction so that a stray properties file can never
-// change which account is being traded.
+// ./tiger_openapi_config.properties, ~/.tigeropen/... and
+// ./tiger_openapi_token.properties, and will silently override credentials you
+// passed explicitly. Every ClientConfig we hand out is re-asserted after
+// construction so that a stray properties file can never change which account
+// is being traded.
 package tigersdk
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	sdkclient "github.com/tigerfintech/openapi-go-sdk/client"
@@ -44,7 +47,7 @@ func NewClientConfig(cfg *config.Config) (*sdkconfig.ClientConfig, error) {
 		sdkconfig.WithTimezone(cfg.Timezone),
 		sdkconfig.WithTimeout(cfg.Timeout),
 		sdkconfig.WithServerURL(cfg.ServerURL),
-		sdkconfig.WithQuoteServerURL(cfg.QuoteServerURL),
+		sdkconfig.WithQuoteServerURL(quoteServerURL(cfg)),
 		// Dynamic domain lookup is a network call; the explicit URL is honoured
 		// as-is so behaviour is predictable and offline-testable.
 		sdkconfig.WithEnableDynamicDomain(false),
@@ -73,21 +76,53 @@ func NewClientConfig(cfg *config.Config) (*sdkconfig.ClientConfig, error) {
 	sc.Language = cfg.Language
 	sc.Timezone = cfg.Timezone
 	sc.ServerURL = cfg.ServerURL
-	sc.QuoteServerURL = cfg.QuoteServerURL
+	sc.QuoteServerURL = quoteServerURL(cfg)
 	if cfg.DeviceID != "" {
 		sc.DeviceID = cfg.DeviceID
 	}
+	// Token is the one field the SDK discovers from a *second* file,
+	// ./tiger_openapi_token.properties (or $TIGEROPEN_TOKEN / $TIGEROPEN_TOKEN_FILE),
+	// independently of the config file above. It is not a credential we ever
+	// set, and that is exactly why it has to be cleared: NewHttpClient copies it
+	// into the Authorization header of every request, so a file nobody in this
+	// project wrote can authenticate the session as somebody else's account.
+	// Clearing costs nothing because no flow here uses a bearer token.
+	sc.Token = ""
 	return sc, nil
 }
 
-// Session bundles the HTTP client shared by the quote and trade clients.
+// quoteServerURL resolves the endpoint market data goes to.
+//
+// The README documents the default as "= server_url", and config.Load already
+// applies it, but a Config built by hand (a test, a library caller) can still
+// leave it empty. The SDK also falls back to ServerURL inside
+// NewQuoteHttpClient, so an empty value is not a crash — it is just implicit.
+// Resolving it here keeps the field meaning one thing: the quote client is
+// always built from a URL this project chose.
+func quoteServerURL(cfg *config.Config) string {
+	if cfg.QuoteServerURL != "" {
+		return cfg.QuoteServerURL
+	}
+	return cfg.ServerURL
+}
+
+// Session bundles the HTTP clients the quote and trade calls are made through.
+//
+// The two are separate objects. The SDK's NewQuoteHttpClient clones the config
+// and substitutes QuoteServerURL for ServerURL on the copy, so a shared client
+// would be locked to whichever URL it was built with; two clients means the
+// trade gateway and the quote gateway are each honoured as configured.
 type Session struct {
 	Config *config.Config
 	SDK    *sdkconfig.ClientConfig
-	HTTP   *sdkclient.HttpClient
+	// HTTP talks to ServerURL (trade, account, corporate actions).
+	HTTP *sdkclient.HttpClient
+	// QuoteHTTP talks to QuoteServerURL. Never nil for a session built by
+	// NewSession.
+	QuoteHTTP *sdkclient.HttpClient
 }
 
-// NewSession builds the SDK config and HTTP client.
+// NewSession builds the SDK config and the HTTP clients.
 func NewSession(cfg *config.Config, log *logging.Logger) (*Session, error) {
 	sc, err := NewClientConfig(cfg)
 	if err != nil {
@@ -98,19 +133,52 @@ func NewSession(cfg *config.Config, log *logging.Logger) (*Session, error) {
 		opts = append(opts, sdkclient.WithLogger(log))
 	}
 	hc := sdkclient.NewHttpClient(sc, opts...)
-	return &Session{Config: cfg, SDK: sc, HTTP: hc}, nil
+
+	// The quote client needs its own HttpClient: QuoteServerURL is substituted
+	// for ServerURL inside NewQuoteHttpClient, and only there. Handing Quote()
+	// the client above would post every market-data request to the trade
+	// gateway and leave QuoteServerURL unread — a knob that looks live and is
+	// not. NewQuoteHttpClient also zeroes TokenRefreshDuration, so this second
+	// client starts no refresh goroutine of its own; it borrows the first
+	// client's token storage instead, so a token, if one were ever set, cannot
+	// differ between the two.
+	quoteHC := newQuoteHttpClient(sc,
+		append([]sdkclient.ClientOption{sdkclient.WithSharedTokenFrom(hc)}, opts...)...)
+	return &Session{Config: cfg, SDK: sc, HTTP: hc, QuoteHTTP: quoteHC}, nil
 }
 
-// Close releases the HTTP client's resources.
+// newQuoteHttpClient is sdkclient.NewQuoteHttpClient behind a variable, so a
+// test can see the ClientConfig the quote client is built from. HttpClient
+// keeps that config unexported and exports no accessor for it, so the endpoint
+// quote traffic will actually use is otherwise invisible — which is how a knob
+// that does nothing survives a change like this one.
+var newQuoteHttpClient = sdkclient.NewQuoteHttpClient
+
+// Close releases the HTTP clients' resources.
+//
+// Both are closed, and they are two closes of two objects rather than two
+// closes of one: NewQuoteHttpClient builds a fresh client, so the trade
+// gateway's Close says nothing about the quote gateway's. Neither client owns a
+// token-refresh goroutine today (TokenRefreshDuration is 0, and
+// NewQuoteHttpClient zeroes it again), which makes the second close a no-op —
+// but a quote client nobody closes is a leak the day that stops being true.
+// The guards keep a second call, and a nil or half-built session, safe: the
+// commands defer Close and also call it on some paths.
 func (s *Session) Close() {
-	if s != nil && s.HTTP != nil {
+	if s == nil {
+		return
+	}
+	if s.HTTP != nil {
 		s.HTTP.Close()
+	}
+	if s.QuoteHTTP != nil {
+		s.QuoteHTTP.Close()
 	}
 }
 
-// Quote returns a market-data client.
+// Quote returns a market-data client bound to QuoteServerURL.
 func (s *Session) Quote() *sdkquote.QuoteClient {
-	return sdkquote.NewQuoteClient(s.HTTP)
+	return sdkquote.NewQuoteClient(s.QuoteHTTP)
 }
 
 // Trade returns a trading client bound to the configured account.
@@ -152,17 +220,42 @@ func Push(cfg *config.Config, opts PushOptions) (*sdkpush.PushClient, error) {
 	return sdkpush.NewPushClient(sc, popts...), nil
 }
 
-// WarnStrayProperties prints a warning if the SDK's auto-discovery file is
-// present in dir. We neutralise it, but a user who edited it deserves to know
-// why it has no effect.
+// sdkTokenFileName mirrors the SDK's unexported config.defaultTokenFileName
+// (config/token_manager.go:16). It has to be repeated here: sdkconfig reads the
+// file on its own, with no exported name that exposes the path.
+const sdkTokenFileName = "tiger_openapi_token.properties"
+
+// WarnStrayProperties prints a warning for each of the files the SDK discovers
+// on its own: the config and token files in dir, and the config file in the
+// user's home directory. We neutralise them, but a user who edited one deserves
+// to know why it has no effect.
 func WarnStrayProperties(dir string, w io.Writer) {
-	p, found := config.WarnIfStrayPropertiesFile(dir)
-	if !found {
-		return
+	// The files are discovered by separate mechanisms — the config files by
+	// sdkconfig's auto-discovery list, the token file by the TokenManager it
+	// wires up for the bearer token — so a user who removes one can still be
+	// redirected by the other, and each is named on its own. The home-directory
+	// copy is found from any working directory, so the caller's dir cannot
+	// cover it and it is looked up separately.
+	if p, found := config.WarnIfStrayPropertiesFile(dir); found {
+		warnStrayFile(w, p)
 	}
+	if p, found := config.WarnIfStrayHomePropertiesFile(); found {
+		warnStrayFile(w, p)
+	}
+	if p := filepath.Join(dir, sdkTokenFileName); fileExists(p) {
+		warnStrayFile(w, p)
+	}
+}
+
+func warnStrayFile(w io.Writer, p string) {
 	fmt.Fprintf(w, "warning: found %s\n"+
 		"         It is being IGNORED — this project loads credentials from env/YAML only,\n"+
 		"         so that a stray file can never redirect your orders. Delete it.\n", p)
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // DescribeError renders a Tiger SDK error with its category, if it is one.

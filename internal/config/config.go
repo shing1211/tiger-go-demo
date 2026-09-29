@@ -438,14 +438,37 @@ func ResolveConfigPath(flagValue string, getenv Getenv) string {
 	return getenv(EnvConfigPath)
 }
 
-// WarnIfStrayPropertiesFile reports a ./tiger_openapi_config.properties in the
+// StrayPropertiesFileName is the file the SDK auto-discovers for credentials.
+const StrayPropertiesFileName = "tiger_openapi_config.properties"
+
+// sdkHomeDir is the SDK's unexported config home directory
+// (config/client_config.go:229). It is repeated here because the SDK exposes no
+// name for it, and warning about a file we cannot name is not worth much.
+const sdkHomeDir = ".tigeropen"
+
+// WarnIfStrayPropertiesFile reports a tiger_openapi_config.properties in the
 // working directory. The SDK would normally auto-discover it and silently
 // override credentials; internal/tigersdk defends against that, and this helper
 // tells the user why their edits appear to be ignored.
 func WarnIfStrayPropertiesFile(dir string) (string, bool) {
-	p := filepath.Join(dir, "tiger_openapi_config.properties")
+	p := filepath.Join(dir, StrayPropertiesFileName)
 	if _, err := os.Stat(p); err == nil {
 		return p, true
 	}
 	return "", false
+}
+
+// WarnIfStrayHomePropertiesFile reports a tiger_openapi_config.properties in
+// $HOME/.tigeropen, the second location the SDK auto-discovers and one that
+// does not depend on the working directory at all. A run from any directory
+// picks it up, which makes it the more confusing of the two to discover.
+//
+// A system with no home directory is not an error: the file cannot exist there,
+// and failing a command over a warning is the wrong trade.
+func WarnIfStrayHomePropertiesFile() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", false
+	}
+	return WarnIfStrayPropertiesFile(filepath.Join(home, sdkHomeDir))
 }
