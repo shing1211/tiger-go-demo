@@ -23,29 +23,10 @@ var out = os.Stdout
 
 // ---- symbol reference ----
 
-// opSymbols returns the full tradable symbol list for a market. With
-// -delay-mins it instead returns delayed briefs for -symbols, which is the
-// endpoint entitled accounts use when they lack a real-time feed.
+// opSymbols returns the full tradable symbol list for a market.
 func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
-	}
-	if o.delayMins > 0 {
-		symbols := rocli.List(o.symbols)
-		if len(symbols) == 0 {
-			return errSymbols
-		}
-		briefs, err := qc.GetStockDelayBriefs(sdkmodel.StockDelayBriefsRequest{
-			Symbols: symbols,
-			SecType: o.SecType,
-			Lang:    o.Lang,
-		})
-		if err != nil {
-			return fmt.Errorf("get delayed briefs (%s): %w", strings.Join(symbols, ","), err)
-		}
-		rocli.Section(out, "delayed briefs (delay=%d min)", o.delayMins)
-		printBriefs(briefs, o.Limit)
-		return nil
 	}
 	syms, err := qc.GetSymbols(sdkmodel.SymbolsRequest{
 		Market:     o.Market,

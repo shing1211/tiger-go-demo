@@ -66,7 +66,6 @@ type options struct {
 	includeOTC  bool
 	industryID  string
 	industryLvl string
-	delayMins   int
 	totalSize   int
 	// Scanner filters are open-ended in Tiger's API, so they arrive as JSON.
 	baseFilters string
@@ -91,7 +90,6 @@ func run(args []string) error {
 	fs.BoolVar(&o.includeOTC, "include-otc", false, "include OTC symbols in -op symbols")
 	fs.StringVar(&o.industryID, "industry-id", "", "industry id for -op industry-stocks")
 	fs.StringVar(&o.industryLvl, "industry-level", "", "industry level for -op industry-list, e.g. 1")
-	fs.IntVar(&o.delayMins, "delay-mins", 0, "delayed-quote delay in minutes; non-zero switches -op symbols to delayed briefs")
 	fs.StringVar(&o.baseFilters, "base-filters", "", "market scanner base filters, as a JSON array of objects")
 	fs.StringVar(&o.sortJSON, "sort", "", "market scanner sort spec, as a JSON object, e.g. {\"field\":\"market_cap\",\"desc\":true}")
 	fs.StringVar(&o.multiTags, "multi-tags", "", "scanner multi-tag fields, comma-separated")
