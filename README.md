@@ -3,7 +3,8 @@
 A self-contained, safe-by-default Go demo of the **Tiger Brokers OpenAPI**,
 built on the official SDK [`github.com/tigerfintech/openapi-go-sdk`](https://github.com/tigerfintech/openapi-go-sdk) v0.5.2.
 
-Three commands, plus four read-only data commands:
+Eight commands. Seven are read-only; one can write, and only behind two
+independent gates:
 
 | Command | What it does | Writes orders? |
 |---|---|---|
@@ -12,11 +13,12 @@ Three commands, plus four read-only data commands:
 | `cmd/futures` | Contract metadata (exchanges, current/all/continuous contracts, trading times) plus quotes, k-lines, depth, ticks | **No** — read-only |
 | `cmd/reference` | Symbol lists and names, stock details, fundamentals, financial series, FX, short interest, trading calendar, market scanner, industries | **No** — read-only |
 | `cmd/corporate` | Dividends, splits, earnings calendar, IPOs, symbol changes, delistings, capital flow, HK warrants, fund NAVs | **No** — read-only |
-| `cmd/trade` | 29 read commands — account state, orders, contracts, funds, transfers, option exercise — plus place / modify / cancel behind a hard gate | **Yes**, behind two independent gates |
 | `cmd/push` | Real-time push feed (TCP + TLS + Protobuf): quotes, ticks, depth, k-lines, crypto, whole-market and rankings, order/position/asset/fill updates | **No** — read-only |
+| `cmd/token` | Bearer token in memory, and this process's local record of which account feeds it subscribed to | **No** — read-only |
+| `cmd/trade` | 29 read commands — account state, orders, contracts, funds, transfers, option exercise — plus place / modify / cancel behind a hard gate | **Yes**, behind two independent gates |
 
-Only `cmd/trade` has a write path at all. The other six binaries never construct a
-trade client, so there is no code in them that *could* place an order.
+Only `cmd/trade` has a write path at all. The other seven binaries never construct
+a trade client, so there is no code in them that *could* place an order.
 
 ---
 
@@ -55,11 +57,12 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (8 packages, 592 cases — see [Test suite](#test-suite)), all seven
-  binaries run, `-h` works without credentials, missing credentials produce a
+  tests pass (11 packages, 674 cases — see [Test suite](#test-suite)), all eight
+  binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
-  exercised by tests. `make verify` runs all of that plus `coverage-check`.
+  exercised by tests. `scripts/verify` runs all of that plus the SDK coverage
+  check.
 - **Also proven — historically, and not re-runnable:** the HTTP path reaches
   Tiger's *real* production gateway and returns a *real* API error
   (`code=1000 common param error(tigerId … is illegal)`) with deliberately fake
@@ -899,6 +902,61 @@ sent, and here is why" cannot.
   which arrives as a kickout callback, and the command logs that as an error
   because it is the one event an operator has to act on.
 
+### `token` — bearer token and local subscription state (read-only)
+
+```bash
+# Ask the gateway for a new token. In memory only; no file is written.
+go run ./cmd/token -refresh
+
+# Put a token you already hold into this process. In memory only.
+go run ./cmd/token -set "$TOKEN" -refresh
+
+# Print this process's LOCAL record of account subscriptions
+go run ./cmd/token -show
+```
+
+Three flags, all off by default, so a bare invocation is a usage error rather
+than a silent no-op. The order they run in is fixed and the order is the point:
+
+- `-set` is applied first, then `-refresh`, then `-show`. A refresh is a request
+  authenticated with the token currently in hand, so `-set` seeds that token and
+  `-refresh` then rotates it. The reverse order would make `-set` a no-op,
+  because the refresh would overwrite it immediately. **The value you passed to
+  `-set` is not the token in effect when the process exits** — the gateway's is,
+  and the output says so at the point where it stops being true.
+- `-show` reads the push client's own in-memory map. It opens no connection and
+  sends nothing, so **the server is not asked**. The banner says LOCAL, and says
+  the server was not asked, before any list is printed — an empty list with no
+  context is exactly the output that reads like "the account has no
+  subscriptions". This command never subscribes, so the list is empty by
+  construction; `cmd/push` is where subscriptions are made.
+
+**`-set` is the one place the token-file defence is deliberately bypassed, and
+the cost is printed on stderr before the value is used.**
+`internal/tigersdk.NewClientConfig` clears `ClientConfig.Token` after the SDK
+builds it, because the SDK copies that field into the `Authorization` header of
+every request. That clearing still runs for every command in this project, this
+one included — `-set` does not undo it and does not route around it. It is a
+separate input, applied after construction, to a different field, in this one
+process, only when a human typed it. The value came from a command line, so it is
+in that user's shell history and readable by any other user on the machine
+through `ps`. Only its **length** is ever printed, through the same redaction the
+private key and the app secret get; the value is not.
+
+Two inputs are refused rather than applied: `-set` with an empty value (which
+would silently *clear* the token rather than set one — often a shell expanding an
+unset variable), and `-set` with a value containing `PRIVATE KEY`, which is the
+shape of a credential that must never reach a command line. If your token starts
+with `-`, write `-set=TOKEN`.
+
+**`-refresh` is unverified.** It asks the real gateway for a new token, and this
+project has never made a request with valid credentials — so its behaviour is
+established only by "it compiles, it is wired, and the error path is tested
+against a fake". It is called with a nil token manager on purpose: that is what
+keeps the new token in memory. Passing a manager would write it to a file, which
+is the one thing this project refuses to do behind an operator's back. The token
+is gone when the process exits, and there is nowhere to persist it.
+
 ---
 
 ## Configuration reference
@@ -1111,6 +1169,10 @@ tiger-go-demo/
 │       ├── main.go         flags, the 12 feeds / 13 spellings, dispatch, delivery accounting
 │       ├── output.go       the per-payload renderers
 │       └── main_test.go    vocabulary-vs-dispatch drift, cooldown policy, output shapes
+│   └── token/
+│       ├── main.go         flags, the fixed action order, -set / -refresh / -show
+│       ├── output.go       the renderers
+│       └── main_test.go    resolve, ordering, and "never print the value"
 ├── internal/
 │   ├── config/             env + YAML loader, validation, redaction, write gate
 │   │   └── config_test.go
@@ -1120,14 +1182,28 @@ tiger-go-demo/
 │   │   ├── rocli.go
 │   │   ├── output.go
 │   │   └── rocli_test.go
+│   ├── sdkcoverage/        the SDK coverage check: scan, allow-list, reason derivation
+│   │   ├── scan.go         the SDK's client surface, and this repo's call sites
+│   │   ├── allowlist.go    the 19 exclusions, and the closed reason vocabulary
+│   │   ├── check.go        runs both halves and reports
+│   │   ├── verify.go       derives the reasons that are claims about the SDK
+│   │   └── *_test.go       unit tests, control tests, mutation-checked
 │   └── tigersdk/           SDK client construction; defeats every SDK-discovered input
 │       ├── tigersdk.go
 │       └── tigersdk_test.go
+├── test/
+│   ├── readonly_test.go    read-only classification, both directions, plus a control test
+│   └── coverage_test.go    the SDK coverage enforcement point
 ├── openspec/
 │   └── specs/              the normative requirements; see "Specification layer"
+├── docs/
+│   └── superpowers/        the design and plan for the verification work
+├── scripts/
+│   └── verify              the gate: gofmt, vet, test, coverage-check
 ├── .env.example
+├── .gitattributes         LF for all text — gofmt rejects CRLF
 ├── config.example.yaml
-├── Makefile
+├── Makefile                a convenience layer over scripts/verify
 └── README.md
 ```
 
@@ -1135,9 +1211,15 @@ tiger-go-demo/
 flag registration, credential loading, session setup, table formatting and the
 exit-code convention, so each command file is just a list of endpoints. It
 exposes no trade client, which is why those commands cannot place an order.
-`cmd/quote` and `cmd/push` do not use it — `cmd/quote` builds its own session,
-and `cmd/push` builds a push client directly; see [Safety model](#safety-model)
-for why neither can write.
+`cmd/quote`, `cmd/push` and `cmd/token` do not use it — `cmd/quote` builds its own
+session, and `cmd/push` and `cmd/token` build a push client directly; see
+[Safety model](#safety-model) for why none of them can write.
+
+`internal/sdkcoverage` holds the check's logic so it is unit-testable, and
+`test/coverage_test.go` is the enforcement point. The split is deliberate: the
+check's scan roots are `cmd/` and `internal/`, so a check living in `test/` is
+outside its own scan. A checker that could see itself would be able to satisfy the
+check it performs.
 
 ---
 
@@ -1149,6 +1231,56 @@ current figure, that every remaining gap is excluded for a stated structural
 reason rather than forgotten, and that a rejected request is not a mutation in
 this API. This section is the evidence for all three.
 
+#### How the check works, and where it lives
+
+The check is Go, in [`internal/sdkcoverage`](internal/sdkcoverage), and it is
+enforced by `test/coverage_test.go`. Three properties of that arrangement are
+load-bearing, and each is silent when broken:
+
+- **It walks declarations, not a hardcoded directory list.** `ClientMethods`
+  parses the module cache and matches `FuncDecl` whose receiver *type* ends in
+  `Client`. A client type the SDK ships later is therefore counted automatically.
+  It matches the type and never the receiver variable's name: the previous
+  implementation was a `grep` for a literal `(c \*`, and pinning a receiver name
+  means that the day the SDK renames one receiver, that whole type drops out of
+  the denominator — a smaller, greener number, and no failure.
+- **`push/pb` is excluded structurally.** That package declares 32 receiver types
+  over 43 declared types, 278 of them field accessors, and none ends in
+  `Client` — the string does not appear in the package at all. A walk keyed on
+  client-typed declarations cannot reach it. The old `--exclude-dir=pb` flag was
+  honest documentation rather than a guard, and there is no flag here to drop.
+- **The check is outside its own scan.** The scan roots are `cmd/` and
+  `internal/`. A checker living in `test/` cannot see itself, so it cannot
+  satisfy the check it performs. That is structural, not a comment about an
+  exclusion list.
+
+Call sites are matched on `*ast.CallExpr` whose callee is a selector, not on
+text. The previous implementation was `grep -E "\.Name("`, which cannot tell a
+call from a comment or a string literal — both of which would report a method as
+referenced when nothing in the program calls it. The switch is
+behaviour-preserving and that was measured rather than assumed: all 174 textual
+hits under `cmd/` and `internal/` were re-examined with literals stripped and
+comment boundaries respected, and every one was a real call. What it removes is
+the possibility of losing one later.
+
+**The `internal` reason is derived, not asserted.** It is the only reason that
+makes a claim about the vendor rather than about this project, so it is the only
+one `verify.go` can check — and it does, against the module source. A call site
+in a package the SDK ships for its callers to import (`client`, `quote`, `trade`,
+`push`, `config`, `model`, `signer`, `logger`) earns it; a call site in `cmd/`,
+`examples/`, `integtest/` or `scripts/` does not, because those are programs
+shipped for a human to run and nothing in the library's own call graph depends
+on them. Relabelling a method `internal` without a qualifying call site now fails
+the build instead of becoming a comment nobody re-reads.
+
+**Two methods are covered only from a test file.** `GetSubscriptions` and `State`
+are referenced by `internal/tigersdk/tigersdk_test.go` and by nothing else. Test
+files are in scope for the call-site scan by decision: excluding them would move
+the published figure from 140/159 to 138/159, and a change to a published number
+belongs in this README with a reason, not in a silent scope change. What it
+means is narrower than it may look — those two are exercised in a test, so their
+shapes are known, but neither is called by any command.
+
 The SDK ships **four** client types, and the check covers all of them: **159**
 exported methods — **78** on `QuoteClient`, **39** on `TradeClient`, **34** on
 `PushClient`, **8** on `HttpClient`. This project references **140** of them,
@@ -1156,28 +1288,28 @@ leaving **19** uncovered, and `make coverage-check` fails the build if that set
 is not *exactly* these nineteen, so the number cannot drift quietly:
 
 ```console
-$ make coverage-check
+$ go test -count=1 -run TestSDKCoverage -v ./test/
 sdk coverage: 140/159 methods covered, 19 uncovered
 uncovered set matches the allow-list:
-  GetBrief:deprecated
+  CancelSegmentFund:mutating
+  Execute:internal
+  ExecuteRaw:not-used
   GetBars:deprecated
   GetBarsByPage:deprecated
+  GetBrief:deprecated
   GetOptionBrief:deprecated
-  GetWarrantBriefs:deprecated
   GetStockDelayBriefs:deprecated
+  GetWarrantBriefs:deprecated
   GrabQuotePermission:mutating
-  PlaceForexOrder:mutating
-  TransferSegmentFund:mutating
-  CancelSegmentFund:mutating
-  TransferPosition:mutating
-  OptionExerciseSubmit:mutating
   OptionExerciseCancel:mutating
-  SetSecretKey:not-a-call
-  ExecuteRaw:not-used
-  Execute:internal
+  OptionExerciseSubmit:mutating
+  PlaceForexOrder:mutating
   QueryToken:internal
   SecretKey:internal
+  SetSecretKey:not-a-call
   StartTokenAutoRefresh:internal
+  TransferPosition:mutating
+  TransferSegmentFund:mutating
 ```
 
 | Client type | Total | Covered | Uncovered |
@@ -1506,12 +1638,47 @@ precisely because it cannot place anything.
 
 ## Development
 
+**The gate is `scripts/verify`, and it is four commands.** The `make` targets are
+a convenience layer over the same four, not the gate itself — so the checks run on
+a machine with no GNU make installed, which is the point. A gate that only runs on
+one contributor's machine is not a gate.
+
+```bash
+scripts/verify                 # the gate: gofmt, vet, test, coverage-check
+TIGER_NO_RACE=1 scripts/verify # the same, without the race detector
+```
+
+Or the four commands directly, which is what the script runs:
+
+```bash
+gofmt -l .                                    # must print nothing
+go vet ./...
+go test -count=1 ./...
+go test -count=1 -run TestSDKCoverage ./test/
+```
+
+Two environment details, both learned the hard way on Windows:
+
+- **`-race` needs cgo, which needs a C toolchain**, and Windows provides neither
+  by default. `go test -race` exits 2 with `-race requires cgo`. The race detector
+  is the better default, so the script uses it unless `TIGER_NO_RACE=1`; that is
+  the opt-out, not the rule. `make test-norace` is the same escape hatch.
+- **`gofmt` rejects CRLF**, and `core.autocrlf=true` — the Windows git default —
+  turns every checked-out text file into one. `.gitattributes` now pins `eol=lf`
+  for all text, which is why `gofmt -l .` prints nothing on a fresh clone. Without
+  it, that check fails on all 32 Go files for a reason that has nothing to do with
+  formatting.
+
+`GO` defaults to `go` on `PATH`; override it if your install is elsewhere
+(`make verify GO=/usr/local/go/bin/go`).
+
 ```bash
 make help          # list targets
 make verify        # fmt-check + vet + test -race + build + coverage-check
-make build         # binaries into ./bin (all seven)
+make build         # binaries into ./bin (all eight)
 make test          # unit tests with the race detector
-make coverage-check  # fail unless the uncovered SDK methods are exactly the allow-list
+make test-norace   # the same, without it
+make coverage-check  # the coverage assertion on its own
 
 make run-quote     ARGS="-symbols AAPL"
 make run-options   ARGS="-op expiration"
@@ -1521,60 +1688,54 @@ make run-corporate ARGS="-op dividend -symbols AAPL -market US"
 make run-token     ARGS="-show"
 ```
 
-`make verify` is the whole CI set, and its last step is the one worth knowing
-about: `coverage-check` does not merely *count* coverage, it asserts the
-uncovered set is **exactly** the nineteen methods listed above, so a new gap
-fails and so does a method that quietly gained a call site.
+`coverage-check` is the step worth knowing about. It does not merely *count*
+coverage; it asserts the uncovered set is **exactly** the nineteen methods listed
+above, so a new gap fails and so does a method that quietly gained a call site.
+It is Go — `internal/sdkcoverage`, enforced by `test/coverage_test.go` — and it was
+a 40-line `grep`/`sed`/`comm` pipeline until recently, which meant it could only
+run where those exist.
 
 ```console
-$ make verify
-gofmt: clean
-/usr/local/go/bin/go vet ./...
-/usr/local/go/bin/go test -race ./...
-…
-built: quote trade push options futures reference corporate token
-sdk coverage: 140/159 methods covered, 19 uncovered
-uncovered set matches the allow-list:
-  GetBrief:deprecated
-  GetBars:deprecated
-  GetBarsByPage:deprecated
-  GetOptionBrief:deprecated
-  GetWarrantBriefs:deprecated
-  GetStockDelayBriefs:deprecated
-  GrabQuotePermission:mutating
-  PlaceForexOrder:mutating
-  TransferSegmentFund:mutating
-  CancelSegmentFund:mutating
-  TransferPosition:mutating
-  OptionExerciseSubmit:mutating
-  OptionExerciseCancel:mutating
-  SetSecretKey:not-a-call
-  ExecuteRaw:not-used
-  Execute:internal
-  QueryToken:internal
-  SecretKey:internal
-  StartTokenAutoRefresh:internal
-```
-
-Or directly:
-
-```bash
-gofmt -l .         # must print nothing
-go build ./...
-go vet ./...
-go test -race ./...
+$ go test -count=1 -run TestSDKCoverage -v ./test/
+=== RUN   TestSDKCoverage
+    coverage_test.go:26:
+        sdk coverage: 140/159 methods covered, 19 uncovered
+        uncovered set matches the allow-list:
+          CancelSegmentFund:mutating
+          Execute:internal
+          ExecuteRaw:not-used
+          GetBars:deprecated
+          GetBarsByPage:deprecated
+          GetBrief:deprecated
+          GetOptionBrief:deprecated
+          GetStockDelayBriefs:deprecated
+          GetWarrantBriefs:deprecated
+          GrabQuotePermission:mutating
+          OptionExerciseCancel:mutating
+          OptionExerciseSubmit:mutating
+          PlaceForexOrder:mutating
+          QueryToken:internal
+          SecretKey:internal
+          SetSecretKey:not-a-call
+          StartTokenAutoRefresh:internal
+          TransferPosition:mutating
+          TransferSegmentFund:mutating
+--- PASS: TestSDKCoverage (0.15s)
+PASS
+ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 ```
 
 ### Test suite
 
-`go test ./...` puts **8** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **592**:
+`go test ./...` puts **11** packages behind tests and passes. The rough case
+count — every `=== RUN` and every subtest `--- PASS` line — is **674**, across
+200 top-level test functions:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-592
+674
 $ go test -count=1 ./... | grep -c '^ok'
-8
+11
 ```
 
 Per-package statement coverage:
@@ -1583,12 +1744,16 @@ Per-package statement coverage:
 |---|---|---|
 | `internal/logging` | **100.0%** | Level parsing, filtering, formatting, `Discard`, concurrency, SDK-noise silencing |
 | `internal/tigersdk` | **~98.7%** | Every SDK-input defence, session construction, both gateways, `Close`, error rendering, push client |
-| `internal/config` | **82.1%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
 | `cmd/push` | **86.0%** | The feed vocabulary against both dispatch switches, the flag defaults, the `-market` and `-indicators` validators, the cooldown policy, the delivery tracker, every renderer |
+| `internal/config` | **81.4%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
+| `internal/sdkcoverage` | **61.7%** | The client-surface walk, the AST call-site match, the allow-list's shape, and the reason derivation — each with a control test |
+| `cmd/token` | **62.9%** | Flag resolution, the fixed action order, the nil token manager, and "the value is never printed" |
 | `cmd/trade` | **58.1%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **39.8%** | Exit codes, row formatting, truncation |
 | `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
 | `cmd/options` | **10.3%** | Option-identifier parsing |
+| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **0.0%** | Nothing yet. See the note below. |
+| `test` | no statements | Holds only tests: the read-only classification and the coverage enforcement point |
 
 ```console
 $ go test -cover ./...
@@ -1598,14 +1763,17 @@ ok  	github.com/shing1211/tiger-go-demo/cmd/options	coverage: 10.3% of statement
 ok  	github.com/shing1211/tiger-go-demo/cmd/push	coverage: 86.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/cmd/quote	coverage: 21.2% of statements
 	github.com/shing1211/tiger-go-demo/cmd/reference		coverage: 0.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/cmd/token	coverage: 62.9% of statements
 ok  	github.com/shing1211/tiger-go-demo/cmd/trade	coverage: 58.1% of statements
-ok  	github.com/shing1211/tiger-go-demo/internal/config	coverage: 82.1% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/config	coverage: 81.4% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/logging	coverage: 100.0% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/rocli	coverage: 39.8% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/sdkcoverage	coverage: 61.7% of statements
 ok  	github.com/shing1211/tiger-go-demo/internal/tigersdk	coverage: 98.7% of statements
+ok  	github.com/shing1211/tiger-go-demo/test	coverage: [no statements]
 ```
 
-Three of those numbers need a caveat, because a percentage can mean more than it
+Four of those numbers need a caveat, because a percentage can mean more than it
 does:
 
 - **`cmd/push` at 86.0% tests the command's own decisions, not the wire.** The
@@ -1626,6 +1794,24 @@ does:
   The entitlement printer avoids the problem by being split from the call
   (`printAddonEntitlement` calls, `printEntitlement` renders), so the rendering
   — which is where the absent-versus-zero subtlety lives — is testable offline.
+- **`cmd/corporate`, `cmd/futures` and `cmd/reference` are at 0.0%, and that is a
+  stated ceiling rather than an oversight.** Every `op*` function in those three
+  takes a `*sdkquote.QuoteClient`, a concrete SDK struct with no interface, no
+  injectable constructor and no transport seam — the same blocker as `cmd/quote`
+  above, and the same fix: split the call from the rendering. Four renderers have
+  been split that way and are tested; the other 24 `reference` endpoints, and
+  every endpoint in `corporate` and `futures` beyond the contract-metadata
+  printers, are **not** tested. The blocker is real; the ceiling is named rather
+  than left for a reader to discover.
+- **`internal/sdkcoverage` at 61.7% is the number that matters least, and it is
+  worth saying why.** It covers the walk, the AST match, the allow-list's shape
+  and the reason derivation, each with a control test. The uncovered remainder is
+  `Check`'s error plumbing, which is exercised by the same code path every time
+  `test/coverage_test.go` runs — and that test *does* run on every `go test
+  ./...`. The package's own tests were additionally checked by mutation: three
+  deliberate breakages (treat every directory as library, include `_test.go`
+  files, return nothing unconditionally) each fail the suite, so the tests are
+  not passing for a reason nobody checked.
 - **`internal/tigersdk` at ~98.7% is the meaningful number, because of the
   control tests.** Each defence in that package has a *companion* test that
   proves the hazard is actually reachable, by handing the raw SDK the same input

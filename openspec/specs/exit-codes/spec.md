@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Every binary in this project terminates with one of four exit statuses, and the status alone has to be enough for a wrapper to tell a completed action from a declined one. This capability fixes what each status means, fixes the two classifications that are easiest to get wrong — a missing credential is not a usage error, and a refusal is not a failure — and records the structural gap in the scheme: two binaries cannot produce the refusal status at all, because they have no write path to refuse.
+Every binary in this project terminates with one of four exit statuses, and the status alone has to be enough for a wrapper to tell a completed action from a declined one. This capability fixes what each status means, fixes the two classifications that are easiest to get wrong — a missing credential is not a usage error, and a refusal is not a failure — and records the structural gap in the scheme: every read-only binary cannot produce the refusal status at all, because it has no write path to refuse.
 
 ## Requirements
 
@@ -69,14 +69,14 @@ Exit `2` SHALL be produced by a missing-credential condition and by nothing else
 - **WHEN** a config file is named explicitly but cannot be read
 - **THEN** the failure is reported as a file error and the process does not exit `2`
 
-### Requirement: Two binaries cannot produce the refusal status
+### Requirement: Every read-only binary cannot produce the refusal status
 
-The `quote` and `push` binaries SHALL map failures only to `1` and `2` and SHALL NOT contain a branch producing `3`, because neither issues a write and therefore neither can reach a refusal. The shared read-only plumbing DOES define `3`, but none of the commands that use it has a write path, so in this project only the trading command can ever refuse.
+Every binary classified read-only — `quote`, `options`, `futures`, `reference`, `corporate`, `push` and `token` — SHALL map failures only to `1` and `2` and SHALL NOT contain a branch producing `3`, because none issues a write and therefore none can reach a refusal. The shared read-only plumbing DOES define `3`, so the status is reachable in the code, but no command that uses it has a write path, and in this project only the trading command can ever refuse. The classification these seven share is specified in `openspec/specs/command-classification/`, and its refusal requirement is what makes this one checkable rather than per-binary.
 
-#### Scenario: Neither binary has a refusal branch
+#### Scenario: No read-only binary has a refusal branch
 
-- **WHEN** the failure-to-status mapping of the `quote` and `push` binaries is read
-- **THEN** neither contains a branch producing `3`, so a guard refusal is unreachable in them. This is a property of their source, not something the test suite exercises
+- **WHEN** the failure-to-status mapping of each of the seven read-only binaries is read
+- **THEN** none contains a branch producing `3`, so a guard refusal is unreachable in them. This is a property of their source, not something the test suite exercises
 
 #### Scenario: The shared read-only mapping defines a status those binaries cannot reach
 

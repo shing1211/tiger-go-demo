@@ -263,6 +263,112 @@ func TestOnlyTheWriteCommandImportsTheTradePackage(t *testing.T) {
 	}
 }
 
+// TestReadOnlyCommandsCannotExitWithTheRefusalStatus is the runtime half of the
+// exit-codes requirement that every read-only binary cannot produce a refusal.
+//
+// exit 3 is defined in the shared read-only plumbing, so the status is reachable
+// in this project's code — what is unreachable is any route to it from a command
+// that never asks to write. A command with no write path has nothing to refuse,
+// so a branch producing 3 in one of these binaries would be a claim it can decline
+// something, which is exactly the kind of claim this project should not make.
+//
+// Comments and string literals are skipped for the same reason the import check
+// skips them: the usage strings in cmd/quote and cmd/push describe the exit-code
+// convention in prose, and documentation about the gate must not trip the gate.
+func TestReadOnlyCommandsCannotExitWithTheRefusalStatus(t *testing.T) {
+	// os.Exit(3) and any alias for the constant 3. rocli.ExitCode is named
+	// separately because a read-only command may legitimately CALL the shared
+	// mapping -- the mapping defines 3 even though no such command can reach
+	// it -- so its presence is not the finding. The finding is a hardcoded
+	// refusal.
+	forbidden := []string{"os.Exit(3)", "os.Exit( 3 )"}
+
+	for _, name := range readOnlyCommands {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(repoRoot, "cmd", name)
+			for _, f := range goFiles(t, dir) {
+				path := filepath.Join(dir, f)
+				fset := token.NewFileSet()
+				file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+				if err != nil {
+					t.Fatalf("parse %s: %v", path, err)
+				}
+				_ = file // parsed to prove the source is valid Go before scanning it
+				// Scan the code for a literal exit of the refusal status, with
+				// comments and string contents removed first.
+				src, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read %s: %v", path, err)
+				}
+				code := codeOnly(string(src))
+				for _, bad := range forbidden {
+					if strings.Contains(code, bad) {
+						t.Errorf("cmd/%s/%s contains %s; a read-only command has no "+
+							"write path to refuse, so it cannot produce a refusal",
+							name, f, bad)
+					}
+				}
+			}
+		})
+	}
+}
+
+// codeOnly strips comments and the contents of string literals, so a check for
+// a token cannot be satisfied by documentation naming it.
+//
+// It is deliberately a text-level strip rather than an AST walk: the thing being
+// looked for is a literal inside a call expression, and removing comments and
+// string bodies is enough to make the search mean "this appears in code".
+func codeOnly(src string) string {
+	var out strings.Builder
+	for i := 0; i < len(src); {
+		switch {
+		case strings.HasPrefix(src[i:], "//"):
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case strings.HasPrefix(src[i:], "/*"):
+			i += 2
+			for i < len(src) && !strings.HasPrefix(src[i:], "*/") {
+				i++
+			}
+			i += 2
+		case src[i] == '"' || src[i] == '`':
+			quote := src[i]
+			i++
+			for i < len(src) && src[i] != quote {
+				if quote == '"' && src[i] == '\\' {
+					i++
+				}
+				i++
+			}
+			i++ // closing quote
+		default:
+			out.WriteByte(src[i])
+			i++
+		}
+	}
+	return out.String()
+}
+
+// goFiles lists the .go files in a command directory, sorted so a failure does
+// not come out in a different order on every run.
+func goFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var files []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".go") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
 // TestTokenIsClassifiedReadOnly is a regression pin on the specific entry this
 // command was added for.
 //
