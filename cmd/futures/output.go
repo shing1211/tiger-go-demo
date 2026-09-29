@@ -121,9 +121,9 @@ func opAllContracts(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 	contracts, err := qc.GetAllFutureContracts(req)
 	if err != nil {
 		return fmt.Errorf("get all future contracts (type=%s exchange=%s): %w",
-			dashOr(o.ftype, "unset"), dashOr(req.Exchange, "all"), err)
+			rocli.DashOr(o.ftype, "unset"), rocli.DashOr(req.Exchange, "all"), err)
 	}
-	rocli.Section(out, "all future contracts (type=%s exchange=%s)", dashOr(o.ftype, "all"), dashOr(req.Exchange, "all"))
+	rocli.Section(out, "all future contracts (type=%s exchange=%s)", rocli.DashOr(o.ftype, "all"), rocli.DashOr(req.Exchange, "all"))
 	printContracts(contracts)
 	return nil
 }
@@ -138,9 +138,9 @@ func opContinuous(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 		Lang: o.Lang,
 	})
 	if err != nil {
-		return fmt.Errorf("get future continuous contracts (type=%s): %w", dashOr(o.ftype, "unset"), err)
+		return fmt.Errorf("get future continuous contracts (type=%s): %w", rocli.DashOr(o.ftype, "unset"), err)
 	}
-	rocli.Section(out, "future continuous contracts (type=%s)", dashOr(o.ftype, "all"))
+	rocli.Section(out, "future continuous contracts (type=%s)", rocli.DashOr(o.ftype, "all"))
 	printContracts(contracts)
 	return nil
 }
@@ -310,10 +310,10 @@ func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 			}
 			bp, bs, ap, as := "-", "-", "-", "-"
 			if i < len(d.Bids) {
-				bp, bs = px(d.Bids[i].Price), fmt.Sprintf("%d", d.Bids[i].Volume)
+				bp, bs = rocli.Px(d.Bids[i].Price), fmt.Sprintf("%d", d.Bids[i].Volume)
 			}
 			if i < len(d.Asks) {
-				ap, as = px(d.Asks[i].Price), fmt.Sprintf("%d", d.Asks[i].Volume)
+				ap, as = rocli.Px(d.Asks[i].Price), fmt.Sprintf("%d", d.Asks[i].Volume)
 			}
 			fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", bp, bs, ap, as)
 		}
@@ -368,7 +368,7 @@ func opTradingTimes(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		Lang:         o.Lang,
 	})
 	if err != nil {
-		return fmt.Errorf("get future trading times (%s, date=%s): %w", code, dashOr(o.date, "server default"), err)
+		return fmt.Errorf("get future trading times (%s, date=%s): %w", code, rocli.DashOr(o.date, "server default"), err)
 	}
 	rocli.Section(out, "future trading times")
 	if tt == nil {
@@ -423,27 +423,7 @@ func opHistoryMain(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 // ---- helpers ----
 
 var (
-	errCodes    = errFlag("-codes", "CLmain,ESmain")
-	errCode     = func(example string) error { return errFlag("-code", example) }
-	errExchange = errFlag("-exchange", "COMEX")
+	errCodes    = rocli.RequiredFlag("-codes", "CLmain,ESmain")
+	errCode     = func(example string) error { return rocli.RequiredFlag("-code", example) }
+	errExchange = rocli.RequiredFlag("-exchange", "COMEX")
 )
-
-func errFlag(name, example string) error {
-	return &flagError{name: name, example: example}
-}
-
-type flagError struct{ name, example string }
-
-func (e *flagError) Error() string {
-	return fmt.Sprintf("%s is required for this endpoint, e.g. -%s %s",
-		strings.TrimLeft(e.name, "-"), strings.TrimLeft(e.name, "-"), e.example)
-}
-
-func px(v float64) string { return fmt.Sprintf("%.4f", v) }
-
-func dashOr(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
-}

@@ -134,11 +134,11 @@ func printChains(chains []sdkmodel.OptionChain, o options) {
 			}
 			putBid, putAsk, putStrike, putOI := "-", "-", "-", int64(0)
 			if row.Put != nil {
-				putBid, putAsk, putStrike, putOI = px(row.Put.BidPrice), px(row.Put.AskPrice), rocli.Dash(row.Put.Strike), row.Put.OpenInterest
+				putBid, putAsk, putStrike, putOI = rocli.Px(row.Put.BidPrice), rocli.Px(row.Put.AskPrice), rocli.Dash(row.Put.Strike), row.Put.OpenInterest
 			}
 			callBid, callAsk, callStrike, callOI := "-", "-", "-", int64(0)
 			if row.Call != nil {
-				callBid, callAsk, callStrike, callOI = px(row.Call.BidPrice), px(row.Call.AskPrice), rocli.Dash(row.Call.Strike), row.Call.OpenInterest
+				callBid, callAsk, callStrike, callOI = rocli.Px(row.Call.BidPrice), rocli.Px(row.Call.AskPrice), rocli.Dash(row.Call.Strike), row.Call.OpenInterest
 			}
 			fmt.Fprintf(out, "  %-10s %-10s %-10s | %-10s %-10s %-10s  put_oi=%-10d call_oi=%d\n",
 				putStrike, putBid, putAsk, callStrike, callBid, callAsk, putOI, callOI)
@@ -200,7 +200,7 @@ func opKline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	}
 	klines, err := qc.GetOptionKlineWithOpts(ids, o.period, o.Begin, o.End, o.Limit, o.sortDir)
 	if err != nil {
-		return fmt.Errorf("get option kline (period=%s, sort=%s): %w", o.period, dashOr(o.sortDir, "sdk default"), err)
+		return fmt.Errorf("get option kline (period=%s, sort=%s): %w", o.period, rocli.DashOr(o.sortDir, "sdk default"), err)
 	}
 	rocli.Section(out, "option k-lines (period=%s)", o.period)
 	for _, k := range klines {
@@ -282,11 +282,11 @@ func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 			}
 			bp, bs, bc := "-", "-", "-"
 			if i < len(d.Bids) {
-				bp, bs, bc = px(d.Bids[i].Price), itoa(int64(d.Bids[i].Volume)), itoa(int64(d.Bids[i].Count))
+				bp, bs, bc = rocli.Px(d.Bids[i].Price), itoa(int64(d.Bids[i].Volume)), itoa(int64(d.Bids[i].Count))
 			}
 			ap, as := "-", "-"
 			if i < len(d.Asks) {
-				ap, as = px(d.Asks[i].Price), itoa(d.Asks[i].Volume)
+				ap, as = rocli.Px(d.Asks[i].Price), itoa(d.Asks[i].Volume)
 			}
 			fmt.Fprintf(out, "  %-10s %10s %10s   %10s %10s\n", bp, bs, bc, ap, as)
 		}
@@ -462,22 +462,9 @@ func nearestExpiry(ctx context.Context, qc *sdkquote.QuoteClient, symbol, market
 }
 
 var (
-	errSymbols = errFlag("-symbols", "AAPL,TSLA")
-	errIDs     = errFlag("-ids", `"AAPL 250117C00200000"`)
+	errSymbols = rocli.RequiredFlag("-symbols", "AAPL,TSLA")
+	errIDs     = rocli.RequiredFlag("-ids", `"AAPL 250117C00200000"`)
 )
-
-func errFlag(name, example string) error {
-	return &flagError{name: name, example: example}
-}
-
-type flagError struct{ name, example string }
-
-func (e *flagError) Error() string {
-	return fmt.Sprintf("%s is required for this endpoint, e.g. -%s %s",
-		strings.TrimLeft(e.name, "-"), strings.TrimLeft(e.name, "-"), e.example)
-}
-
-func px(v float64) string { return fmt.Sprintf("%.4f", v) }
 
 func itoa(v int64) string { return fmt.Sprintf("%d", v) }
 
@@ -489,17 +476,9 @@ func dashAt(s []string, i int) string {
 	}
 	return "-"
 }
-
 func contractCount(counts []int, i int) string {
 	if i < len(counts) {
 		return fmt.Sprintf("%6d contract(s)", counts[i])
 	}
 	return "        -"
-}
-
-func dashOr(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
 }

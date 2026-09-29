@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	sdkmodel "github.com/tigerfintech/openapi-go-sdk/model"
 	sdkquote "github.com/tigerfintech/openapi-go-sdk/quote"
@@ -115,7 +114,7 @@ func opStockDetails(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 // opStockIndustry returns the GICS-style classification ladder. The endpoint
 // takes a single symbol, so only the first of -symbols is used.
 func opStockIndustry(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
-	symbol := firstSymbol(o.symbols)
+	symbol := rocli.FirstSymbol(o.symbols)
 	if symbol == "" {
 		return errSymbol
 	}
@@ -149,7 +148,7 @@ func opStockIndustry(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 
 // opStockBroker returns the broker-by-broker distribution of a stock's trades.
 func opStockBroker(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
-	symbol := firstSymbol(o.symbols)
+	symbol := rocli.FirstSymbol(o.symbols)
 	if symbol == "" {
 		return errSymbol
 	}
@@ -231,7 +230,7 @@ func opFinancialDaily(ctx context.Context, qc *sdkquote.QuoteClient, o options) 
 	}
 	fields := rocli.ListRaw(o.fields)
 	if len(fields) == 0 {
-		return errFlag("-fields", "revenue,eps")
+		return rocli.RequiredFlag("-fields", "revenue,eps")
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -268,7 +267,7 @@ func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 	}
 	fields := rocli.ListRaw(o.fields)
 	if len(fields) == 0 {
-		return errFlag("-fields", "revenue,net_income")
+		return rocli.RequiredFlag("-fields", "revenue,net_income")
 	}
 	req := sdkmodel.FinancialReportRequest{
 		Symbols:    symbols,
@@ -276,10 +275,10 @@ func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 		Fields:     fields,
 		PeriodType: o.periodType,
 	}
-	if d := dateToMillis(o.beginDate); d != nil {
+	if d := rocli.DateMillis(o.beginDate); d != nil {
 		req.BeginDate = d
 	}
-	if d := dateToMillis(o.endDate); d != nil {
+	if d := rocli.DateMillis(o.endDate); d != nil {
 		req.EndDate = d
 	}
 	if err := ctx.Err(); err != nil {
@@ -288,7 +287,7 @@ func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 	items, err := qc.GetFinancialReport(req)
 	if err != nil {
 		return fmt.Errorf("get financial report (%s, fields=%s, period_type=%s): %w",
-			strings.Join(symbols, ","), strings.Join(fields, ","), dashOr(o.periodType, "unset"), err)
+			strings.Join(symbols, ","), strings.Join(fields, ","), rocli.DashOr(o.periodType, "unset"), err)
 	}
 	rocli.Section(out, "financial report")
 	fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n", "SYMBOL", "FIELD", "CCY", "FILED", "PERIOD_END", "VALUE")
@@ -337,7 +336,7 @@ func opFinancialCurrency(ctx context.Context, qc *sdkquote.QuoteClient, o option
 func opExchangeRate(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	currencies := rocli.List(o.currencies)
 	if len(currencies) == 0 {
-		return errFlag("-currencies", "USD,HKD")
+		return rocli.RequiredFlag("-currencies", "USD,HKD")
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -410,7 +409,7 @@ func opCalendar(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 	})
 	if err != nil {
 		return fmt.Errorf("get trading calendar (market=%s, %s..%s): %w",
-			o.Market, dashOr(o.beginDate, "open"), dashOr(o.endDate, "open"), err)
+			o.Market, rocli.DashOr(o.beginDate, "open"), rocli.DashOr(o.endDate, "open"), err)
 	}
 	rocli.Section(out, "trading calendar (market=%s)", o.Market)
 	fmt.Fprintf(out, "  %-8s %-12s %-10s %-16s\n", "MARKET", "DATE", "TRADING", "SESSION")
@@ -523,9 +522,9 @@ func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		Lang:          o.Lang,
 	})
 	if err != nil {
-		return fmt.Errorf("get industry list (level=%s): %w", dashOr(o.industryLvl, "all"), err)
+		return fmt.Errorf("get industry list (level=%s): %w", rocli.DashOr(o.industryLvl, "all"), err)
 	}
-	rocli.Section(out, "industry list (level=%s)", dashOr(o.industryLvl, "all"))
+	rocli.Section(out, "industry list (level=%s)", rocli.DashOr(o.industryLvl, "all"))
 	fmt.Fprintf(out, "  %-12s %-8s %-40s\n", "ID", "LEVEL", "NAME")
 	for i, it := range items {
 		if i >= o.Limit {
@@ -541,7 +540,7 @@ func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 func opIndustryStocks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	id := strings.TrimSpace(o.industryID)
 	if id == "" {
-		return errFlag("-industry-id", "1001 (see -op industry-list)")
+		return rocli.RequiredFlag("-industry-id", "1001 (see -op industry-list)")
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -675,7 +674,7 @@ func opDelayed(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 // opKlinePage walks the paged k-line endpoint and returns a flat bar list,
 // which is what you want when a series is longer than one page.
 func opKlinePage(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
-	symbol := firstSymbol(o.symbols)
+	symbol := rocli.FirstSymbol(o.symbols)
 	if symbol == "" {
 		return errSymbol
 	}
@@ -777,7 +776,7 @@ func opQuotePermission(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 		Lang:      o.Lang,
 	})
 	if err != nil {
-		return fmt.Errorf("get quote permission (%s..%s): %w", dashOr(o.beginDate, "open"), dashOr(o.endDate, "open"), err)
+		return fmt.Errorf("get quote permission (%s..%s): %w", rocli.DashOr(o.beginDate, "open"), rocli.DashOr(o.endDate, "open"), err)
 	}
 	rocli.Section(out, "quote permissions")
 	if len(perms) == 0 {
@@ -858,7 +857,7 @@ func opTimelineHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 		Lang:    o.Lang,
 	})
 	if err != nil {
-		return fmt.Errorf("get timeline history (%s, date=%s): %w", strings.Join(symbols, ","), dashOr(o.beginDate, "today"), err)
+		return fmt.Errorf("get timeline history (%s, date=%s): %w", strings.Join(symbols, ","), rocli.DashOr(o.beginDate, "today"), err)
 	}
 	rocli.Section(out, "historical timeline")
 	for _, t := range tls {
@@ -905,34 +904,9 @@ func printBriefs(briefs []sdkmodel.Brief, limit int) {
 // ---- helpers ----
 
 var (
-	errSymbols = errFlag("-symbols", "AAPL,MSFT")
-	errSymbol  = errFlag("-symbols", "AAPL")
+	errSymbols = rocli.RequiredFlag("-symbols", "AAPL,MSFT")
+	errSymbol  = rocli.RequiredFlag("-symbols", "AAPL")
 )
-
-func errFlag(name, example string) error {
-	return &flagError{name: name, example: example}
-}
-
-type flagError struct{ name, example string }
-
-func (e *flagError) Error() string {
-	return fmt.Sprintf("%s is required for this endpoint, e.g. -%s %s",
-		strings.TrimLeft(e.name, "-"), strings.TrimLeft(e.name, "-"), e.example)
-}
-
-func firstSymbol(list string) string {
-	if l := rocli.List(list); len(l) > 0 {
-		return l[0]
-	}
-	return ""
-}
-
-func dashOr(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
-}
 
 // compactDate turns YYYY-MM-DD into the YYYYMMDD the exchange-rate endpoint
 // expects. An empty input stays empty, which means "server default".
@@ -947,15 +921,3 @@ func compactDate(s string) string {
 // dateToMillis converts a YYYY-MM-DD flag into the *int64 epoch-millisecond
 // bound the financial-report endpoint uses. A blank or unparseable date yields
 // nil, i.e. no bound, rather than a bogus timestamp.
-func dateToMillis(s string) *int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return nil
-	}
-	ms := t.UnixMilli()
-	return &ms
-}

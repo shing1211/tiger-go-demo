@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	sdkmodel "github.com/tigerfintech/openapi-go-sdk/model"
 	sdkquote "github.com/tigerfintech/openapi-go-sdk/quote"
@@ -118,10 +117,10 @@ func actionRequest(symbols []string, o options, kind actionType) (sdkmodel.Corpo
 	case actionEarnings:
 		req.ActionType = "earnings"
 	}
-	if d := dateToMillis(o.beginDate); d != nil {
+	if d := rocli.DateMillis(o.beginDate); d != nil {
 		req.BeginDate = d
 	}
-	if d := dateToMillis(o.endDate); d != nil {
+	if d := rocli.DateMillis(o.endDate); d != nil {
 		req.EndDate = d
 	}
 	return req, nil
@@ -236,10 +235,10 @@ func actionRequestFor(symbols []string, o options, action string) sdkmodel.Corpo
 		Market:     o.Market,
 		ActionType: action,
 	}
-	if d := dateToMillis(o.beginDate); d != nil {
+	if d := rocli.DateMillis(o.beginDate); d != nil {
 		req.BeginDate = d
 	}
-	if d := dateToMillis(o.endDate); d != nil {
+	if d := rocli.DateMillis(o.endDate); d != nil {
 		req.EndDate = d
 	}
 	return req
@@ -249,7 +248,7 @@ func actionRequestFor(symbols []string, o options, action string) sdkmodel.Corpo
 
 // opCapitalFlow reports money flowing in and out, split by order size.
 func opCapitalFlow(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
-	symbol := firstSymbol(o.symbol)
+	symbol := rocli.FirstSymbol(o.symbol)
 	if symbol == "" {
 		return errSymbol
 	}
@@ -279,7 +278,7 @@ func opCapitalFlow(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 
 // opCapitalDistribution reports the current-day inflow/outflow breakdown.
 func opCapitalDistribution(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
-	symbol := firstSymbol(o.symbol)
+	symbol := rocli.FirstSymbol(o.symbol)
 	if symbol == "" {
 		return errSymbol
 	}
@@ -323,7 +322,7 @@ func opWarrantFilter(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 	})
 	if err != nil {
 		return fmt.Errorf("warrant filter (underlying=%s, issuer=%s, expire_ym=%s): %w",
-			dashOr(o.underlying, "any"), dashOr(o.issuer, "any"), dashOr(o.expireYM, "any"), err)
+			rocli.DashOr(o.underlying, "any"), rocli.DashOr(o.issuer, "any"), rocli.DashOr(o.expireYM, "any"), err)
 	}
 	rocli.Section(out, "warrant filter")
 	if res == nil {
@@ -478,47 +477,10 @@ func opFundHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 // ---- helpers ----
 
 var (
-	errSymbols = errFlag("-symbols", "AAPL,MSFT")
-	errSymbol  = errFlag("-symbol", "AAPL")
+	errSymbols = rocli.RequiredFlag("-symbols", "AAPL,MSFT")
+	errSymbol  = rocli.RequiredFlag("-symbol", "AAPL")
 )
-
-func errFlag(name, example string) error {
-	return &flagError{name: name, example: example}
-}
-
-type flagError struct{ name, example string }
-
-func (e *flagError) Error() string {
-	return fmt.Sprintf("%s is required for this endpoint, e.g. -%s %s",
-		strings.TrimLeft(e.name, "-"), strings.TrimLeft(e.name, "-"), e.example)
-}
-
-func firstSymbol(list string) string {
-	if l := rocli.List(list); len(l) > 0 {
-		return l[0]
-	}
-	return ""
-}
-
-func dashOr(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
-}
 
 // dateToMillis converts a YYYY-MM-DD flag into the *int64 epoch-millisecond
 // bound the corporate-action endpoints use. A blank or unparseable date yields
 // nil, i.e. no bound, rather than a bogus timestamp.
-func dateToMillis(s string) *int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return nil
-	}
-	ms := t.UnixMilli()
-	return &ms
-}

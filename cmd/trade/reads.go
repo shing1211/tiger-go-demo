@@ -143,9 +143,9 @@ func printDerivativeContracts(ctx context.Context, tc tradeClient, o options) er
 	rows, err := tc.DerivativeContracts(req)
 	if err != nil {
 		return fmt.Errorf("get derivative contracts (symbols=%s, sec_type=%s, expiry=%s): %w",
-			dashOr(strings.Join(req.Symbols, ","), "any"), o.secType, dashOr(req.Expiry, "any"), err)
+			rocli.DashOr(strings.Join(req.Symbols, ","), "any"), o.secType, rocli.DashOr(req.Expiry, "any"), err)
 	}
-	rocli.Section(os.Stdout, "derivative contracts (sec_type=%s, expiry=%s)", o.secType, dashOr(req.Expiry, "any"))
+	rocli.Section(os.Stdout, "derivative contracts (sec_type=%s, expiry=%s)", o.secType, rocli.DashOr(req.Expiry, "any"))
 	printContractRows(rows, o.limit)
 	return nil
 }
@@ -227,10 +227,10 @@ func printOrderTransactions(ctx context.Context, tc tradeClient, o options) erro
 	rows, err := tc.OrderTransactions(req)
 	if err != nil {
 		return fmt.Errorf("get order transactions (order_id=%d, symbol=%s): %w",
-			o.orderID, dashOr(req.Symbol, "any"), err)
+			o.orderID, rocli.DashOr(req.Symbol, "any"), err)
 	}
 	rocli.Section(os.Stdout, "order transactions (order_id=%d, symbol=%s)",
-		o.orderID, dashOr(req.Symbol, "any"))
+		o.orderID, rocli.DashOr(req.Symbol, "any"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -299,7 +299,7 @@ func printPrimeAssets(ctx context.Context, tc tradeClient, o options) error {
 		BaseCurrency: strings.TrimSpace(o.baseCurrency),
 	})
 	if err != nil {
-		return fmt.Errorf("get prime assets (base_currency=%s): %w", dashOr(o.baseCurrency, "default"), err)
+		return fmt.Errorf("get prime assets (base_currency=%s): %w", rocli.DashOr(o.baseCurrency, "default"), err)
 	}
 	rocli.Section(os.Stdout, "prime assets")
 	if res == nil {
@@ -342,7 +342,7 @@ func printAggregateAssets(ctx context.Context, tc tradeClient, o options) error 
 	})
 	if err != nil {
 		return fmt.Errorf("get aggregate assets (seg_type=%s, base_currency=%s): %w",
-			dashOr(o.segType, "all"), dashOr(o.baseCurrency, "default"), err)
+			rocli.DashOr(o.segType, "all"), rocli.DashOr(o.baseCurrency, "default"), err)
 	}
 	rocli.Section(os.Stdout, "aggregate assets")
 	if res == nil {
@@ -379,11 +379,11 @@ func printAnalyticsAsset(ctx context.Context, tc tradeClient, o options) error {
 	rows, err := tc.AnalyticsAsset(req)
 	if err != nil {
 		return fmt.Errorf("get analytics asset (seg_type=%s, currency=%s, %s..%s): %w",
-			dashOr(req.SegType, "all"), dashOr(req.Currency, "default"),
-			dashOr(req.StartDate, "open"), dashOr(req.EndDate, "open"), err)
+			rocli.DashOr(req.SegType, "all"), rocli.DashOr(req.Currency, "default"),
+			rocli.DashOr(req.StartDate, "open"), rocli.DashOr(req.EndDate, "open"), err)
 	}
 	rocli.Section(os.Stdout, "analytics asset (currency=%s, %s..%s)",
-		dashOr(req.Currency, "default"), dashOr(req.StartDate, "open"), dashOr(req.EndDate, "open"))
+		rocli.DashOr(req.Currency, "default"), rocli.DashOr(req.StartDate, "open"), rocli.DashOr(req.EndDate, "open"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -460,10 +460,10 @@ func printSegmentFundAvailable(ctx context.Context, tc tradeClient, o options) e
 	rows, err := tc.SegmentFundAvailable(segmentFundRequest(o))
 	if err != nil {
 		return fmt.Errorf("get segment fund available (%s -> %s): %w",
-			dashOr(o.fromSegment, "any"), dashOr(o.toSegment, "any"), err)
+			rocli.DashOr(o.fromSegment, "any"), rocli.DashOr(o.toSegment, "any"), err)
 	}
 	rocli.Section(os.Stdout, "segment fund available (%s -> %s)",
-		dashOr(o.fromSegment, "any"), dashOr(o.toSegment, "any"))
+		rocli.DashOr(o.fromSegment, "any"), rocli.DashOr(o.toSegment, "any"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -488,10 +488,10 @@ func printSegmentFundHistory(ctx context.Context, tc tradeClient, o options) err
 	rows, err := tc.SegmentFundHistory(segmentFundRequest(o))
 	if err != nil {
 		return fmt.Errorf("get segment fund history (%s -> %s): %w",
-			dashOr(o.fromSegment, "any"), dashOr(o.toSegment, "any"), err)
+			rocli.DashOr(o.fromSegment, "any"), rocli.DashOr(o.toSegment, "any"), err)
 	}
 	rocli.Section(os.Stdout, "segment fund history (%s -> %s)",
-		dashOr(o.fromSegment, "any"), dashOr(o.toSegment, "any"))
+		rocli.DashOr(o.fromSegment, "any"), rocli.DashOr(o.toSegment, "any"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -539,12 +539,12 @@ func printFundDetails(ctx context.Context, tc tradeClient, o options) error {
 	rows, err := tc.FundDetails(req)
 	if err != nil {
 		return fmt.Errorf("get fund details (fund_type=%s, currency=%s, %s..%s): %w",
-			dashOr(req.FundType, "all"), dashOr(req.Currency, "default"),
-			dashOr(req.StartDate, "open"), dashOr(req.EndDate, "open"), err)
+			rocli.DashOr(req.FundType, "all"), rocli.DashOr(req.Currency, "default"),
+			rocli.DashOr(req.StartDate, "open"), rocli.DashOr(req.EndDate, "open"), err)
 	}
 	rocli.Section(os.Stdout, "fund details (fund_type=%s, currency=%s, %s..%s)",
-		dashOr(req.FundType, "all"), dashOr(req.Currency, "default"),
-		dashOr(req.StartDate, "open"), dashOr(req.EndDate, "open"))
+		rocli.DashOr(req.FundType, "all"), rocli.DashOr(req.Currency, "default"),
+		rocli.DashOr(req.StartDate, "open"), rocli.DashOr(req.EndDate, "open"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -574,9 +574,9 @@ func printFundingHistory(ctx context.Context, tc tradeClient, o options) error {
 		SegType: strings.TrimSpace(o.segType),
 	})
 	if err != nil {
-		return fmt.Errorf("get funding history (seg_type=%s): %w", dashOr(o.segType, "all"), err)
+		return fmt.Errorf("get funding history (seg_type=%s): %w", rocli.DashOr(o.segType, "all"), err)
 	}
-	rocli.Section(os.Stdout, "funding history (seg_type=%s)", dashOr(o.segType, "all"))
+	rocli.Section(os.Stdout, "funding history (seg_type=%s)", rocli.DashOr(o.segType, "all"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -607,10 +607,10 @@ func printPositionTransferRecords(ctx context.Context, tc tradeClient, o options
 	rows, err := tc.PositionTransferRecords(positionTransferRequest(o))
 	if err != nil {
 		return fmt.Errorf("get position transfer records (market=%s, symbol=%s, status=%s): %w",
-			o.market, dashOr(o.symbol, "any"), dashOr(o.status, "any"), err)
+			o.market, rocli.DashOr(o.symbol, "any"), rocli.DashOr(o.status, "any"), err)
 	}
 	rocli.Section(os.Stdout, "position transfer records (market=%s, symbol=%s, status=%s)",
-		o.market, dashOr(o.symbol, "any"), dashOr(o.status, "any"))
+		o.market, rocli.DashOr(o.symbol, "any"), rocli.DashOr(o.status, "any"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -670,10 +670,10 @@ func printPositionTransferExternalRecords(ctx context.Context, tc tradeClient, o
 	rows, err := tc.PositionTransferExternalRecords(positionTransferRequest(o))
 	if err != nil {
 		return fmt.Errorf("get external position transfer records (market=%s, symbol=%s, status=%s): %w",
-			o.market, dashOr(o.symbol, "any"), dashOr(o.status, "any"), err)
+			o.market, rocli.DashOr(o.symbol, "any"), rocli.DashOr(o.status, "any"), err)
 	}
 	rocli.Section(os.Stdout, "external position transfer records (market=%s, symbol=%s, status=%s)",
-		o.market, dashOr(o.symbol, "any"), dashOr(o.status, "any"))
+		o.market, rocli.DashOr(o.symbol, "any"), rocli.DashOr(o.status, "any"))
 	if len(rows) == 0 {
 		fmt.Println("  (no rows returned)")
 		return nil
@@ -748,10 +748,10 @@ func printOptionExerciseCheck(ctx context.Context, tc tradeClient, o options) er
 	res, err := tc.OptionExerciseCheck(req)
 	if err != nil {
 		return fmt.Errorf("option exercise check (contract_id=%d, type=%s): %w",
-			o.contractID, dashOr(kind, "default"), err)
+			o.contractID, rocli.DashOr(kind, "default"), err)
 	}
 	rocli.Section(os.Stdout, "option exercise check (contract_id=%d, type=%s)",
-		o.contractID, dashOr(kind, "default"))
+		o.contractID, rocli.DashOr(kind, "default"))
 	if res == nil {
 		fmt.Println("  (no data returned)")
 		return nil
@@ -780,9 +780,9 @@ func printOptionExercisePositions(ctx context.Context, tc tradeClient, o options
 	}
 	res, err := tc.OptionExercisePositions(sdkmodel.OptionExercisePositionRequest{Type: kind})
 	if err != nil {
-		return fmt.Errorf("get option exercise positions (type=%s): %w", dashOr(kind, "default"), err)
+		return fmt.Errorf("get option exercise positions (type=%s): %w", rocli.DashOr(kind, "default"), err)
 	}
-	rocli.Section(os.Stdout, "option exercise positions (type=%s)", dashOr(kind, "default"))
+	rocli.Section(os.Stdout, "option exercise positions (type=%s)", rocli.DashOr(kind, "default"))
 	if res == nil {
 		fmt.Println("  (no data returned)")
 		return nil
@@ -828,10 +828,10 @@ func printOptionExerciseRecords(ctx context.Context, tc tradeClient, o options) 
 	res, err := tc.OptionExerciseRecords(req)
 	if err != nil {
 		return fmt.Errorf("get option exercise records (page=%d, size=%d, type=%s, status=%s): %w",
-			o.page, o.size, dashOr(kind, "all"), dashOr(req.Status, "all"), err)
+			o.page, o.size, rocli.DashOr(kind, "all"), rocli.DashOr(req.Status, "all"), err)
 	}
 	rocli.Section(os.Stdout, "option exercise records (page=%d, size=%d, type=%s, status=%s)",
-		o.page, o.size, dashOr(kind, "all"), dashOr(req.Status, "all"))
+		o.page, o.size, rocli.DashOr(kind, "all"), rocli.DashOr(req.Status, "all"))
 	if res == nil {
 		fmt.Println("  (no data returned)")
 		return nil
@@ -912,13 +912,6 @@ func exerciseType(o options, command string) (string, error) {
 }
 
 func upperOrEmpty(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
-
-func dashOr(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
-}
 
 func money(v float64) string { return fmt.Sprintf("%.2f", v) }
 
