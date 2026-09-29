@@ -7,7 +7,7 @@ Three commands, plus four read-only data commands:
 
 | Command | What it does | Writes orders? |
 |---|---|---|
-| `cmd/quote` | Real-time briefs, historical bars, intraday timeline, market state, order-book depth | **No** — read-only |
+| `cmd/quote` | Real-time briefs, historical bars, intraday timeline, market state, order-book depth, addon-plan entitlement | **No** — read-only |
 | `cmd/options` | Option expiries, chains (plain and with Greeks), quotes, k-lines, depth, ticks, timeline, symbols, implied vol | **No** — read-only |
 | `cmd/futures` | Contract metadata (exchanges, current/all/continuous contracts, trading times) plus quotes, k-lines, depth, ticks | **No** — read-only |
 | `cmd/reference` | Symbol lists and names, stock details, fundamentals, financial series, FX, short interest, trading calendar, market scanner, industries | **No** — read-only |
@@ -50,18 +50,22 @@ To use this project you need all of the following:
 Be clear-eyed about what is and is not proven:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass, all seven binaries run, `-h` works without credentials, missing
-  credentials produce a precise actionable error, and the dry-run gate provably
-  blocks order writes. The configuration loader, redaction, and the
-  request-building path are exercised by tests.
-- **Also proven:** the HTTP path reaches Tiger's *real* production gateway and
-  returns a *real* API error (`code=1000 common param error(tigerId … is
-  illegal)`) with deliberately fake credentials. The push client likewise opens
-  a real TLS connection to Tiger's push server. Every `-op` of the four
-  read-only data commands has been run this way: 77 invocations, each building a
-  request, signing it, sending it and decoding a genuine API error response.
-  That proves the wiring, the flag parsing and the request construction — and
-  nothing more.
+  tests pass (7 packages, ~337 cases — see [Test suite](#test-suite)), all seven
+  binaries run, `-h` works without credentials, missing credentials produce a
+  precise actionable error, and the dry-run gate provably blocks order writes.
+  The configuration loader, redaction, and the request-building path are
+  exercised by tests.
+- **Also proven — historically, and not re-runnable:** the HTTP path reaches
+  Tiger's *real* production gateway and returns a *real* API error
+  (`code=1000 common param error(tigerId … is illegal)`) with deliberately fake
+  credentials. The push client likewise opened a real TLS connection to Tiger's
+  push server. Every `-op` of the four read-only data commands was run this way
+  at the time: 77 invocations, each building a request, signing it, sending it
+  and decoding a genuine API error response. That proved the wiring, the flag
+  parsing and the request construction — and nothing more. It is a record of a
+  past run, not a current state: it needs a valid RSA key to reproduce, and
+  `cmd/quote -op addon-entitlement` is **not** part of those 77. Do not read the
+  count as covering today's endpoint list.
 - **NOT proven:** no request has ever been made with valid credentials. Field
   names, order-state values, k-line periods, option expiry/strike encoding,
   corporate-action type strings, financial `-fields` values and push callback
@@ -249,11 +253,66 @@ go run ./cmd/quote -symbols AAPL -depth -market US
 # Market state
 go run ./cmd/quote -market-state US
 
+# Addon-plan entitlement: the plan in force and the quota it leaves behind
+go run ./cmd/quote -op addon-entitlement
+
 # Combine
 go run ./cmd/quote -symbols AAPL,0700.HK -klines -depth -market HK -v
 ```
 
 K-line periods: `day`, `week`, `month`, `year`, `1m`, `5m`, `15m`, `30m`, `60m`.
+
+`-op` selects a single endpoint instead of the default flow. `quote` has one:
+`addon-entitlement` (`QuoteClient.GetAddonEntitlement`, wire method
+`addon_entitlements`, a genuine read). It follows the same shape as the `-op` of
+the other four read-only data commands: one `ops` slice in `cmd/quote/main.go`
+feeds the flag help, the usage text and the dispatcher, so the three cannot
+drift apart. Three tests hold that together — the usage text mentions every op
+in `ops`, no op is listed twice, and every op in `ops` actually reaches a
+printer rather than falling through to the "unknown `-op`" error. With no `-op`,
+`quote` runs the default flow: briefs for `-symbols` plus whatever extras the
+boolean flags ask for.
+
+### What `addon-entitlement` prints, and what a `0` there does not mean
+
+```text
+== addon entitlement ==
+  user_level  pro
+  active_plan plan_type=standard expire=2026-01-01 00:00:00
+  addons (1)
+    PLAN_TYPE            ACTIVE  START                EXPIRE
+    market_data          true    2025-12-01 00:00:00  2026-01-01 00:00:00
+  effective_entitlement
+    QUOTA                       LIMIT  REMAINING
+    history_stock                 100         40
+    history_future                 50         50
+    history_option                 20          5
+    subscribe                      30         12
+    subscribe_depth                10          7
+    high_freq_limit               200
+    mid_freq_limit                100
+    low_freq_limit                 20
+    rate_multiple                   4
+```
+
+(That block is real output from `printEntitlement` against a hand-built
+`model.AddonEntitlement`. It is *not* a live response — see the "NOT proven"
+section above. The last four have no limit/remaining split in the SDK's model,
+so only one column is printed for them.)
+
+The output distinguishes absent from zero exactly as far as the SDK's types
+allow, and no further:
+
+- `EffectiveEntitlement` and `ActivePlan` are **pointers**. `nil` means the
+  server sent no such block, and prints `(absent)` / `(none)`.
+- The **fourteen quota fields** inside `effective_entitlement` are plain `int`
+  with `omitempty`. A field the server omits arrives as `0`, and **the type
+  gives no way to tell that apart from a real zero** — `{}` and
+  `{"historyStockLimit":0}` decode to the same struct. So an omitted field and a
+  genuine measurement of zero both print as `0`. `cmd/quote/output_test.go`
+  pins this against the real `encoding/json` decoder rather than against
+  hand-built structs, and the demo does not pretend otherwise: a `0` in that
+  table means "the type could not tell us", not "you have nothing left".
 
 ### `options` — option market data (read-only)
 
@@ -385,7 +444,8 @@ corporate-action endpoints set the type themselves.
 
 ### Shared flags
 
-All four read-only data commands share these, alongside their own:
+The four data commands (`options`, `futures`, `reference`, `corporate`) share
+these, alongside their own:
 
 | Flag | Default | Description |
 |---|---|---|
@@ -402,6 +462,11 @@ All four read-only data commands share these, alongside their own:
 `-limit` caps both what is requested and what is printed, and a truncation note
 tells you when rows were dropped, so a broad query never looks complete.
 `-h` works with no credentials and exits 0.
+
+`cmd/quote` is the odd one out: it has its own boolean flags (`-klines`,
+`-timeline`, `-depth`, `-market-state`) and its own `-limit` default of 5, but it
+now also has `-op`, with a single value (`addon-entitlement`). The flag name and
+the `ops`-slice shape are the same as the four above; the list is just shorter.
 
 ### `trade` — account, orders and 3 gated writes
 
@@ -530,12 +595,50 @@ Feeds: `quote`, `tick`, `depth`, `account`. `Ctrl-C` exits cleanly.
 | `TIGER_TIMEZONE` | `timezone` | no | `US/Eastern` | Response timestamp timezone |
 | `TIGER_TIMEOUT` | `timeout` | no | `15s` | HTTP timeout (Go duration) |
 | `TIGER_DEVICE_ID` | `device_id` | no | auto MAC | Device identifier |
-| `TIGER_SERVER_URL` | `server_url` | no | production gateway | Trade/common endpoint |
-| `TIGER_QUOTE_SERVER_URL` | `quote_server_url` | no | = `server_url` | Quote endpoint |
+| `TIGER_SERVER_URL` | `server_url` | no | production gateway | Trade/account/common endpoint |
+| `TIGER_QUOTE_SERVER_URL` | `quote_server_url` | no | = `server_url` | Quote endpoint. **Now honoured** — see below |
 | `TIGER_PUSH_URL` | `push_url` | no | `openapi.tigerfintech.com:8887` | Push server |
 | `TIGER_DRY_RUN` | `dry_run` | no | **`true`** | Order-write kill switch |
 | `TIGER_CONFIG` | — | no | — | Path to the YAML config |
 | `TIGER_LOG_LEVEL` | `log_level` | no | `info` | `debug`/`info`/`warn`/`error` |
+
+### `quote_server_url` was inert, and is not any more
+
+An earlier version of this README listed `quote_server_url` as the quote
+endpoint without qualification, which was **not true**. The field was parsed,
+stored, passed to the SDK config and re-asserted like every other field, and had
+no effect whatsoever: `Session.Quote()` handed `NewQuoteClient` the session's
+*single* `*HttpClient`, and the SDK substitutes `QuoteServerURL` for `ServerURL`
+in exactly one place — inside `NewQuoteHttpClient` — so every market-data request
+was posted to `server_url`.
+
+The consequence was not cosmetic. Anyone who set `quote_server_url` to keep
+market data off production — a sandbox, a recording proxy, a second gateway —
+would have had every quote request go to the **production** gateway instead,
+silently. That was verified with two loopback listeners on the old code: with
+`server_url` and `quote_server_url` pointing at different ports, the quote
+request arrived on the main port.
+
+It is now honoured, and the fix is structural rather than a reordering:
+
+- The quote client is built through the SDK's `NewQuoteHttpClient`, which is the
+  only place `QuoteServerURL` is substituted, with an explicit fallback to
+  `server_url` when it is unset. So a `Config` built by hand — a test, a library
+  caller — cannot produce an ambiguous endpoint either.
+- The quote client **shares token storage** with the trade client
+  (`WithSharedTokenFrom`), so a token can never differ between the two. That is
+  also why no second token-refresh goroutine is started.
+- `Session` now holds **two** HTTP clients, and `Close` releases both. They are
+  two closes of two objects, not two closes of one: `NewQuoteHttpClient` builds a
+  fresh client, so closing the trade gateway's client says nothing about the
+  quote gateway's. A test gives each client a token-refresh goroutine and counts
+  them, so "neither leaks" is observed rather than assumed.
+- `TestQuoteServerURLIsHonoured` swaps the SDK's quote-client constructor for a
+  recorder, because `HttpClient` holds its config in an unexported field and
+  exports no accessor. That invisibility is precisely how a knob that does
+  nothing survives a change: the endpoint quote traffic will actually use is
+  otherwise unobservable. A second test asserts that pointing the quote gateway
+  somewhere does not move the trade gateway.
 
 ---
 
@@ -547,13 +650,70 @@ Feeds: `quote`, `tick`, `depth`, `account`. `Ctrl-C` exits cleanly.
 - **`secret_key` is omitted, never empty.** Tiger rejects an empty
   `secret_key` in `biz_content` with `biz_param_error(1010)`. This project
   leaves the field unset unless you actually configured one.
-- **Stray properties files are neutralised.** The SDK auto-discovers
-  `./tiger_openapi_config.properties` and `~/.tigeropen/…` and will silently
-  override credentials you passed explicitly. `internal/tigersdk` re-asserts
-  every field after the SDK builds its config, so a stray file cannot redirect
-  your orders. You get a warning telling you the file is being ignored.
 - **The SDK's own `TIGEROPEN_*` env vars are deliberately unused**, so this
-  project's loader stays the single source of truth.
+  project's loader stays the single source of truth. Note that "unused" is
+  enforced, not assumed: see the stray-input table below.
+
+### The complete set of inputs the SDK honours, and what this project does with them
+
+The SDK accepts credentials and endpoints from five places this project does not
+configure: three files and two groups of environment variables. **All five are
+neutralised.** The three **files** are also **named in a warning**; the env vars
+are not. That asymmetry is deliberate and is stated below rather than papered
+over.
+
+| Input | Neutralised? | Warned? | Notes |
+|---|---|---|---|
+| `./tiger_openapi_config.properties` | yes | **yes** | Re-asserted after the SDK builds its config. Long-standing. |
+| `~/.tigeropen/tiger_openapi_config.properties` | yes | **yes** (new) | Found from *any* working directory. Was defended but silent. |
+| `./tiger_openapi_token.properties` | yes (new) | **yes** (new) | The significant gap. See below. |
+| `$TIGEROPEN_TOKEN`, `$TIGEROPEN_TOKEN_FILE` | yes (tested) | **no** | Honest gap in the warning, not in the defence. |
+| `$TIGEROPEN_TIGER_ID` and friends | yes | no | Same treatment as the token env vars. |
+
+`internal/tigersdk.NewClientConfig` re-asserts **every** field of the
+`ClientConfig` after the SDK has built it, so a stray file cannot redirect your
+orders, your gateway or your account — including into fields this project
+legitimately leaves empty, which is exactly the ones a file gets to fill.
+
+**`~/.tigeropen/tiger_openapi_config.properties` was defended but silent.** A
+user could plant a file there, run a command from any directory, watch it have no
+effect, and get no explanation. The values were never wrong; the *feedback* was.
+It is now named in the warning like the working-directory copy.
+
+**`./tiger_openapi_token.properties` was the significant gap.** The SDK reads it
+*independently* of the config file — a different file, found by a different
+mechanism, feeding a different field — and `client/http_client.go:381` copies
+its contents into the `Authorization` header of **every** request. So a file that
+has nothing to do with your credentials could authenticate your session as a
+different account. `sc.Token` is now cleared explicitly, and the file is named
+in the warning. The `Authorization` half was proved on the wire, not just in the
+config: a loopback listener saw `Authorization: STRAY-TOKEN-ABC` from the raw
+SDK built with no token option at all, and an empty header from a session this
+project built with the same file sitting in the working directory.
+
+**`$TIGEROPEN_TOKEN` and `$TIGEROPEN_TOKEN_FILE` are neutralised but not
+warned.** Both are covered by tests and both lose to the same clearing, but
+neither produces output. The asymmetry is deliberate: an environment variable is
+something you can see in your own shell, while a file you may not know exists is
+not — so the warning budget goes to the files. It is still an undocumented
+silence, and it is recorded here rather than left for someone to discover.
+
+`WarnStrayProperties` keeps the message format it always had — name the file,
+say it is being ignored, explain the consequence, say to delete it. The body was
+factored so each new detection reuses the same text. Two limits are worth knowing:
+
+- It **degrades silently** when `HOME` is unset or unreadable (a bare container,
+  a cron job with no login shell). No home directory means the file cannot be
+  there, so this is not an error, but it is a detection that did not run.
+- **One broken lookup disables one detection, not all of them.** A missing
+  `HOME` still leaves the working-directory and token-file warnings intact, and
+  that is asserted by a test.
+
+Every `WarnStrayProperties` call site passes `"."`, so the working-directory
+name in the warning is the bare filename, not `./tiger_…`. The absolute form
+appears when an absolute directory is passed. Adequate for a human reading a
+terminal; not a path a script could delete from.
+
 - **`.gitignore` covers `.env`, `*.properties`, `config.local.yaml`,
   `config.yaml`, `*.pem` and `*.key`.** Never commit real credentials.
 
@@ -564,8 +724,10 @@ Feeds: `quote`, `tick`, `depth`, `account`. `Ctrl-C` exits cleanly.
 ```
 tiger-go-demo/
 ├── cmd/
-│   ├── quote/main.go       market data (read-only)
-│   ├── quote/output.go     table formatting
+│   ├── quote/
+│   │   ├── main.go         flags, -op dispatch, the default flow
+│   │   ├── output.go       table formatting, addon-entitlement rendering
+│   │   └── output_test.go  absent-vs-zero rendering, decoded against real JSON
 │   ├── options/            option market data (read-only)
 │   │   ├── main.go         flags + endpoint dispatch
 │   │   ├── requests.go     option-identifier parsing
@@ -575,18 +737,21 @@ tiger-go-demo/
 │   ├── corporate/          corporate actions, warrants, funds (read-only)
 │   ├── trade/
 │   │   ├── main.go         flag set, write gate, the 3 write paths
-│   │   ├── reads.go        the 24 read-only endpoints
+│   │   ├── reads.go        the 29 read-only endpoints
 │   │   └── dispatch_test.go  reads bypass the gate; writes do not
 │   └── push/main.go        real-time push subscriptions
 ├── internal/
 │   ├── config/             env + YAML loader, validation, redaction, write gate
 │   │   └── config_test.go
 │   ├── logging/            leveled logger implementing the SDK logger interface
+│   │   └── logging_test.go
 │   ├── rocli/              shared read-only plumbing: session, output, exit codes
 │   │   ├── rocli.go
 │   │   ├── output.go
 │   │   └── rocli_test.go
-│   └── tigersdk/           SDK client construction; defeats properties-file override
+│   └── tigersdk/           SDK client construction; defeats every SDK-discovered input
+│       ├── tigersdk.go
+│       └── tigersdk_test.go
 ├── .env.example
 ├── config.example.yaml
 ├── Makefile
@@ -603,28 +768,31 @@ exposes no trade client, which is why those commands cannot place an order.
 ## SDK coverage
 
 Of the SDK's **117** exported client methods (**78** on `QuoteClient`, **39**
-on `TradeClient`), this project now exercises **102**:
+on `TradeClient`), this project now exercises **103**, leaving **14** uncovered:
 
-| | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` |
-|---|---|---|---|
-| Overall | 13 / 117 | 79 / 117 | **102 / 117** |
-| `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | **70 / 78** |
-| `TradeClient` | 8 / 39 | 8 / 39 | **32 / 39** |
+| | Initial commit | After the 4 data commands | After `cmd/trade/reads.go` | Now (`-op addon-entitlement`) |
+|---|---|---|---|---|
+| Overall | 13 / 117 | 79 / 117 | 102 / 117 | **103 / 117** |
+| `QuoteClient` (read-only) | 5 / 78 | 71 / 78 | 70 / 78 | **71 / 78** |
+| `TradeClient` | 8 / 39 | 8 / 39 | 32 / 39 | **32 / 39** |
+| Uncovered | 104 | 38 | 15 | **14** |
 
-(The middle column is the state at commit `83e12a6`; the right-hand column is
-the working tree. Both are re-derivable with the loop below against a
-`git worktree` of the earlier commit.)
+(The first column is commit `0ebcbf4`, the second `83e12a6`, the third
+`7239660`. All three are re-derivable with the loop below against a
+`git worktree` of the relevant commit — which is how the first two were checked
+when this table was extended.)
 
-You can re-derive all three numbers without trusting this table:
+You can re-derive the current numbers without trusting this table:
 
 ```console
 $ TG=$(go env GOMODCACHE)/github.com/tigerfintech/openapi-go-sdk@v0.5.2
-$ grep -rhoE '^func \([a-z] \*(Quote|Trade)Client\) [A-Z][A-Za-z0-9]*' "$TG" --include=*.go \
-    | sed -E 's/.*\) //' | sort -u \
-  | while read -r m; do
-      grep -rqE "\.$m\(" cmd/ || echo "UNCOVERED: $m"
-    done
-UNCOVERED: GetAddonEntitlement
+$ for f in quote trade; do
+    grep -hoE "^func \(c \*${f^}Client\) [A-Z][A-Za-z0-9]*" $TG/$f/*.go \
+      | sed -E 's/.*\) //' | sort -u
+  done > /tmp/methods          # 117 lines
+$ wc -l < /tmp/methods
+117
+$ while read m; do grep -rqE "\.$m\(" cmd/ internal/ || echo "UNCOVERED: $m"; done < /tmp/methods
 UNCOVERED: GetBars
 UNCOVERED: GetBarsByPage
 UNCOVERED: GetBrief
@@ -639,19 +807,20 @@ UNCOVERED: PlaceForexOrder
 UNCOVERED: SetSecretKey
 UNCOVERED: TransferPosition
 UNCOVERED: TransferSegmentFund
-$ # 15 uncovered -> 102 of 117 covered
+$ # 14 uncovered -> 103 of 117 covered; 7 on each client
 ```
 
-`QuoteClient` goes **down** by one, not up, when `reads.go` lands.
+`QuoteClient` went **down** by one, not up, when `reads.go` landed.
 `cmd/reference` used to call `GetStockDelayBriefs`, a deprecated alias, behind a
 `-delay-mins` flag that existed only to select it. Both the call and the flag
 are gone; `-op delayed` now calls the non-deprecated `GetDelayedQuote`. That is
-a fix, not a regression, and it is the reason the quote count drops while the
-overall count rises by 24.
+a fix, not a regression, and it is the reason the quote count dropped while the
+overall count rose by 24. `GetAddonEntitlement` then brought the quote count
+back up to where it was, from the other direction.
 
-### What the 15 uncovered methods actually are
+### What the 14 uncovered methods actually are
 
-**8 on `QuoteClient`:**
+**7 on `QuoteClient`:**
 
 - **6 deprecated aliases** — `GetBrief`, `GetBars`, `GetBarsByPage`,
   `GetOptionBrief`, `GetWarrantBriefs` and `GetStockDelayBriefs`. Each carries a
@@ -669,16 +838,25 @@ overall count rises by 24.
              BarsRequest BarsByPageRequest IsQuantityByAmount; do
       printf '%-24s %s\n' "$s" "$(grep -rn "\b$s\b" --include=*.go . | wc -l)"
     done
+  GetBrief                 0
+  GetBars                  0
+  GetBarsByPage            0
+  GetOptionBrief           0
+  GetWarrantBriefs         0
+  GetStockDelayBriefs      0
+  tigeropen.Version        0
+  MarketScannerTags        0
+  BarsRequest              0
+  BarsByPageRequest        0
+  IsQuantityByAmount       0
   ```
 
 - **`GrabQuotePermission`** — *claims* a market-data permission, so it changes
   account state. It is not a read, and it is deliberately left out.
 
-- **`GetAddonEntitlement`** (`quote/quote_client.go:418`, wire method
-  `addon_entitlements`) — a genuine read that returns the account's addon plan
-  entitlements. It is **still uncovered**, and that is an open gap, not a
-  principled omission. It is the one method in this repo that could be added
-  without any safety argument against it; nobody wired it up.
+There is **no** open gap left on the quote client: every one of the 7 is either
+a deprecated alias superseded by a method this project does call, or something
+that mutates the account.
 
 **7 on `TradeClient`:**
 
@@ -715,10 +893,10 @@ SDK v0.5.2**; only `GrabQuotePermission` does.
 
 ### How to read the coverage claim
 
-This is a **static** check. It proves a method is *referenced from `cmd/`*, not
-that it was *exercised against a live Tiger account*. Nothing in this repo has
-run with valid credentials — see the "This project has NOT been validated
-against the live Tiger API" section near the top of this README.
+This is a **static** check. It proves a method is *referenced from `cmd/` or
+`internal/`*, not that it was *exercised against a live Tiger account*. Nothing
+in this repo has run with valid credentials — see "This project has NOT been
+validated against the live Tiger API" near the top of this README.
 
 ### There is no REST here, and no HTTP verbs
 
@@ -769,6 +947,80 @@ go vet ./...
 go test -race ./...
 ```
 
+### Test suite
+
+`go test ./...` puts **7** packages behind tests and passes. The rough case
+count — every `=== RUN` and every subtest `--- PASS` line — is **337**:
+
+```console
+$ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
+337
+$ go test -count=1 ./... | grep -c '^ok'
+7
+```
+
+Per-package statement coverage:
+
+| Package | Coverage | What it covers |
+|---|---|---|
+| `internal/logging` | **100.0%** | Level parsing, filtering, formatting, `Discard`, concurrency, SDK-noise silencing |
+| `internal/tigersdk` | **~98.6%** | Every SDK-input defence, session construction, both gateways, `Close`, error rendering, push client |
+| `internal/config` | **82.1%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
+| `cmd/trade` | **58.1%** | The write-gate dispatch table (the load-bearing part) |
+| `internal/rocli` | **39.8%** | Exit codes, row formatting, truncation |
+| `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
+| `cmd/options` | **10.3%** | Option-identifier parsing |
+
+```console
+$ go test -cover ./...
+	github.com/shing1211/tiger-go-demo/cmd/corporate		coverage: 0.0% of statements
+	github.com/shing1211/tiger-go-demo/cmd/futures		coverage: 0.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/cmd/options	coverage: 10.3% of statements
+	github.com/shing1211/tiger-go-demo/cmd/push		coverage: 0.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/cmd/quote	coverage: 21.2% of statements
+	github.com/shing1211/tiger-go-demo/cmd/reference		coverage: 0.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/cmd/trade	coverage: 58.1% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/config	coverage: 82.1% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/logging	coverage: 100.0% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/rocli	coverage: 39.8% of statements
+ok  	github.com/shing1211/tiger-go-demo/internal/tigersdk	coverage: 98.6% of statements
+```
+
+Two of those numbers need a caveat, because a percentage can mean more than it
+does:
+
+- **`cmd/quote` at 21.2% covers exactly one endpoint's rendering.** The rest of
+  `cmd/quote`'s printers — briefs, k-lines, timeline, depth, market state — are
+  **not** covered, and they are not covered by an oversight that a better test
+  would fix. They take a `*sdkquote.QuoteClient`, a concrete SDK struct, and the
+  SDK offers **no seam to substitute a fake**: no interface, no exported
+  constructor that accepts one, no way to inject a transport. So those printers
+  can be exercised only against a live account, which this project does not have.
+  The entitlement printer avoids the problem by being split from the call
+  (`printAddonEntitlement` calls, `printEntitlement` renders), so the rendering
+  — which is where the absent-versus-zero subtlety lives — is testable offline.
+- **`internal/tigersdk` at ~98.6% is the meaningful number, because of the
+  control tests.** Each defence in that package has a *companion* test that
+  proves the hazard is actually reachable, by handing the raw SDK the same input
+  and asserting it **does** get adopted:
+
+  | Defence test | Control test |
+  |---|---|
+  | `TestNewClientConfigBeatsStrayPropertiesFile` | `TestStrayPropertiesFileIsActuallyReachable` |
+  | `TestNewClientConfigBeatsHomePropertiesFile` | `TestHomeFileIsActuallyReachable` |
+  | `TestNewClientConfigBeatsStrayTokenFile` | `TestStrayTokenFileIsActuallyReachable` |
+  | `TestNewClientConfigBeatsStrayFileWhenFieldsAreUnset` | `TestNewClientConfigEmptyFieldsSurviveTheSDKWithoutAFile` |
+  | `TestWarnStrayPropertiesNamesTheHomeFile` | `TestHomeFileIsActuallyReachable` |
+
+  A defence test on its own proves nothing: the defence could be removed
+  entirely and the test would still pass, if the hazard had quietly gone away
+  upstream. The control test fails the moment the hazard stops being real — the
+  SDK stops reading the file, and the defence test is then measuring nothing.
+  That is the property that makes this suite worth having rather than a green
+  tick, and it is why `TestSDKConfigErrorIsUnreachable` — one test that
+  documents a branch as *provably* unreachable rather than leaving it silently
+  untested — is worth as much as a covered one.
+
 ### Tests for the write gate
 
 `cmd/trade/dispatch_test.go` is the test that makes the safety claim checkable
@@ -802,14 +1054,17 @@ unreachable from that file. The test proves the consequence; the signature is
 the cause.
 
 ```console
-$ go test -race ./cmd/trade/ -v
---- PASS: TestReadCommandsBypassTheGate (0.02s)      # 29 subtests, one per read
---- PASS: TestWritesAreRefusedByDefault (0.00s)       # 3 subtests, one per write
+$ go test -race -count=1 -v ./cmd/trade/
+--- PASS: TestReadCommandsBypassTheGate (0.05s)      # 29 subtests, one per read
+--- PASS: TestWritesAreRefusedByDefault (0.01s)      # 3 subtests, one per write
 --- PASS: TestUnknownCommandIsRejected (0.00s)
 --- PASS: TestMissingInputsAreRejectedLocally (0.01s) # 9 subtests
 PASS
-ok  	github.com/shing1211/tiger-go-demo/cmd/trade	1.089s
+ok  	github.com/shing1211/tiger-go-demo/cmd/trade	1.162s
 ```
+
+(The four `--- PASS` lines and the `ok` line are verbatim output; the `# N
+subtests` notes are counts, `grep -cE '^    --- PASS'` per test.)
 
 ---
 
@@ -836,8 +1091,12 @@ sure `TIGER_SECRET_KEY` is unset rather than set to `""`.
 **`error: REFUSED: dry run is enabled` (exit 3)**
 Working as designed. Pass `--confirm-live` **and** set `TIGER_DRY_RUN=false`.
 
-**`warning: found ./tiger_openapi_config.properties … being IGNORED`**
-The SDK's auto-discovery file. It is being ignored on purpose. Delete it.
+**`warning: found <path> … being IGNORED`**
+A file the SDK would otherwise have discovered on its own —
+`./tiger_openapi_config.properties`, `~/.tigeropen/tiger_openapi_config.properties`
+or `./tiger_openapi_token.properties`. It is being ignored on purpose, and the
+path in the warning is the one to delete. If you expected its values to be in
+effect, they were not: this project loads credentials from env/YAML only.
 
 **Push: `等待 CONNECTED 响应超时` (timed out waiting for CONNECTED)**
 The TLS connection opened but authentication was rejected — same credential
