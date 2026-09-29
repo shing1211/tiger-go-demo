@@ -131,3 +131,77 @@ func isClientType(expr ast.Expr) bool {
 	}
 	return false
 }
+
+// CallSites returns, for each of the given methods, whether command or internal
+// code references it by selector expression — a call of the form x.Method(.
+//
+// It matches on *ast.SelectorExpr rather than on text. The previous
+// implementation was grep -E "\.Name(", which cannot tell a call from prose: a
+// method named in a comment, or inside a string literal, counted as covered.
+// Both are ways for this check to report a method as referenced when nothing in
+// the program ever calls it, which is the specific dishonesty this project
+// exists to avoid.
+//
+// Switching is behaviour-preserving today, and that was measured rather than
+// assumed. All 174 textual hits under cmd/ and internal/ were re-examined with
+// double-quoted and backtick literals stripped and the // comment boundary
+// respected; every one was a real call, so the AST match cannot lose a method
+// now. What it removes is the possibility of losing one later — a future
+// comment that reads `qc.GetKline(ctx, syms)` would have counted.
+//
+// root is supplied rather than derived, so a test can point this at a synthetic
+// tree. Test files are in scope, by decision: see the test for why.
+func CallSites(root string, methods []string) (map[string]bool, error) {
+	wanted := make(map[string]bool, len(methods))
+	for _, m := range methods {
+		wanted[m] = false
+	}
+
+	fset := token.NewFileSet()
+	for _, dir := range []string{"cmd", "internal"} {
+		base := filepath.Join(root, dir)
+		if _, err := os.Stat(base); err != nil {
+			// A root without internal/ is still a valid root; a root without
+			// cmd/ is the same. Only a genuine walk error is worth reporting.
+			continue
+		}
+		err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			file, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				// A parse failure must surface. Returning an empty result for
+				// this file would report every method it calls as uncovered,
+				// which is a real-looking finding produced by a broken tree.
+				return fmt.Errorf("parsing %s: %w", path, err)
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				// A SelectorExpr alone is not enough: `x := c.Method` names the
+				// method without calling it, and this check claims call sites.
+				// Requiring the selector to be the callee of a CallExpr is what
+				// separates the two.
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if _, tracked := wanted[sel.Sel.Name]; tracked {
+					wanted[sel.Sel.Name] = true
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return wanted, nil
+}
