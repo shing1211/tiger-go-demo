@@ -483,60 +483,60 @@ func TestPrintTicks(t *testing.T) {
 	})
 }
 
-// func TestPrintOptionTimeline(t *testing.T) {
-// 	t.Run("populated", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionTimeline([]sdkmodel.Timeline{
-// 				{
-// 					Symbol:   "AAPL",
-// 					Period:   "2025-01-17",
-// 					PreClose: 100.0,
-// 					Intraday: &sdkmodel.TimelineBucket{
-// 						Items: []sdkmodel.TimelineItem{{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234}},
-// 					},
-// 				},
-// 			}, 20)
-// 		})
-// 		for _, want := range []string{"AAPL", "100.5000"} {
-// 			if !strings.Contains(got, want) {
-// 				t.Errorf("output should contain %q, got:\n%s", want, got)
-// 			}
-// 		}
-// 	})
+func TestPrintOptionTimeline(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionTimeline([]sdkmodel.Timeline{
+				{
+					Symbol:   "AAPL",
+					Period:   "2025-01-17",
+					PreClose: 100.0,
+					Intraday: &sdkmodel.TimelineBucket{
+						Items: []sdkmodel.TimelineItem{{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234}},
+					},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "100.5000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
 
-// 	t.Run("empty", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionTimeline(nil, 20)
-// 		})
-// 		if !strings.Contains(got, "no rows") {
-// 			t.Errorf("empty timeline should say 'no rows', got:\n%s", got)
-// 		}
-// 	})
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionTimeline(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty timeline should say 'no rows', got:\n%s", got)
+		}
+	})
 
-// 	t.Run("limit_per_bucket", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionTimeline([]sdkmodel.Timeline{
-// 				{
-// 					Symbol:   "AAPL",
-// 					Period:   "2025-01-17",
-// 					PreClose: 100.0,
-// 					Intraday: &sdkmodel.TimelineBucket{
-// 						Items: []sdkmodel.TimelineItem{
-// 							{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234},
-// 							{Time: 1737116460000, Price: 101.0, AvgPrice: 100.9, Volume: 2345},
-// 						},
-// 					},
-// 				},
-// 			}, 1)
-// 		})
-// 		if !strings.Contains(got, "100.5000") {
-// 			t.Errorf("first item should appear, got:\n%s", got)
-// 		}
-// 		if strings.Contains(got, "101.0000") {
-// 			t.Errorf("second item should not appear due to limit, got:\n%s", got)
-// 		}
-// 	})
-// }
+	t.Run("limit_per_bucket", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionTimeline([]sdkmodel.Timeline{
+				{
+					Symbol:   "AAPL",
+					Period:   "2025-01-17",
+					PreClose: 100.0,
+					Intraday: &sdkmodel.TimelineBucket{
+						Items: []sdkmodel.TimelineItem{
+							{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234},
+							{Time: 1737116460000, Price: 101.0, AvgPrice: 100.9, Volume: 2345},
+						},
+					},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("first item should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "101.0000") {
+			t.Errorf("second item should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
 
 // func TestPrintOptionSymbols(t *testing.T) {
 // 	t.Run("populated", func(t *testing.T) {

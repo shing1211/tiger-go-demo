@@ -379,6 +379,37 @@ func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 
 // ---- timeline ----
 
+func printOptionTimeline(tls []sdkmodel.Timeline, limit int) {
+	if len(tls) == 0 {
+		fmt.Fprintf(out, "  (no rows returned)\n")
+		return
+	}
+	for _, t := range tls {
+		fmt.Fprintf(out, "  %-28s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
+		for _, b := range []struct {
+			name   string
+			bucket *sdkmodel.TimelineBucket
+		}{
+			{"pre_hours", t.PreHours},
+			{"intraday", t.Intraday},
+			{"after_hours", t.AfterHours},
+		} {
+			if b.bucket == nil || len(b.bucket.Items) == 0 {
+				continue
+			}
+			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
+			for i, it := range b.bucket.Items {
+				if i >= limit {
+					rocli.Truncate(out, i, len(b.bucket.Items), limit)
+					break
+				}
+				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
+					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
+			}
+		}
+	}
+}
+
 func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	items, err := parseIdentifiers(rocli.ListRaw(o.ids))
 	if err != nil {
@@ -396,30 +427,7 @@ func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 		return fmt.Errorf("get option timeline: %w", err)
 	}
 	rocli.Section(out, "option intraday timeline")
-	for _, t := range tls {
-		fmt.Fprintf(out, "  %-28s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
-		for _, b := range []struct {
-			name   string
-			bucket *sdkmodel.TimelineBucket
-		}{
-			{"pre_hours", t.PreHours},
-			{"intraday", t.Intraday},
-			{"after_hours", t.AfterHours},
-		} {
-			if b.bucket == nil || len(b.bucket.Items) == 0 {
-				continue
-			}
-			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
-			for i, it := range b.bucket.Items {
-				if i >= o.Limit {
-					rocli.Truncate(out, i, len(b.bucket.Items), o.Limit)
-					break
-				}
-				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
-					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
-			}
-		}
-	}
+	printOptionTimeline(tls, o.Limit)
 	return nil
 }
 
