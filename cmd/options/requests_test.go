@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shing1211/tiger-go-demo/internal/rocli"
 )
 
 // TestParseIdentifier covers the OCC-style option identifier parser that feeds
@@ -161,4 +163,117 @@ func TestOptionTimezone(t *testing.T) {
 	if got := optionTimezone("0700.hk"); got != "Asia/Hong_Kong" {
 		t.Errorf("optionTimezone(0700.hk) = %q", got)
 	}
+}
+
+// chainRequest is the other half of what -op chain does before it reaches the
+// SDK, and unlike expiryMillis and parseIdentifiers it had no test at all.
+//
+// The load-bearing assertion is the -itm mapping. "in" and "out" set a boolean
+// that reads naturally as InTheMoney, and swapping the two would be a silent
+// correctness bug: the command would return a plausible, well-formatted chain
+// containing exactly the opposite contracts. The filter cases are checked by
+// value, not by presence, so an inversion fails rather than passing.
+func TestChainRequest(t *testing.T) {
+	base := func(itm string) options {
+		return options{Common: rocli.Common{Market: "US", Lang: "en"}, itm: itm}
+	}
+
+	t.Run("itm in sets InTheMoney true", func(t *testing.T) {
+		req, err := chainRequest("AAPL", "2025-01-17", base("in"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if req.OptionFilter == nil || req.OptionFilter.InTheMoney == nil {
+			t.Fatalf("-itm in should set a filter, got %#v", req.OptionFilter)
+		}
+		if !*req.OptionFilter.InTheMoney {
+			t.Error("-itm in means in-the-money; InTheMoney must be true, not false")
+		}
+	})
+
+	t.Run("itm out sets InTheMoney false", func(t *testing.T) {
+		req, err := chainRequest("AAPL", "2025-01-17", base("out"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if req.OptionFilter == nil || req.OptionFilter.InTheMoney == nil {
+			t.Fatalf("-itm out should set a filter, got %#v", req.OptionFilter)
+		}
+		if *req.OptionFilter.InTheMoney {
+			t.Error("-itm out means out-of-the-money; InTheMoney must be false, not true")
+		}
+	})
+
+	t.Run("itm all and empty send no filter", func(t *testing.T) {
+		for _, itm := range []string{"", "all", "  ALL  "} {
+			req, err := chainRequest("AAPL", "2025-01-17", base(itm))
+			if err != nil {
+				t.Fatalf("itm %q: unexpected error: %v", itm, err)
+			}
+			if req.OptionFilter != nil {
+				t.Errorf("itm %q should not filter, got %#v", itm, req.OptionFilter)
+			}
+		}
+	})
+
+	t.Run("itm is case-insensitive and trimmed", func(t *testing.T) {
+		req, err := chainRequest("AAPL", "2025-01-17", base("  IN  "))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if req.OptionFilter == nil || req.OptionFilter.InTheMoney == nil || !*req.OptionFilter.InTheMoney {
+			t.Errorf(`"  IN  " should behave like "in", got %#v`, req.OptionFilter)
+		}
+	})
+
+	t.Run("an unknown itm is rejected and says what is valid", func(t *testing.T) {
+		_, err := chainRequest("AAPL", "2025-01-17", base("sideways"))
+		if err == nil {
+			t.Fatal("an unknown -itm should be an error, not a silently unsfiltered request")
+		}
+		for _, want := range []string{"sideways", "in", "out", "all"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error should mention %q, got: %v", want, err)
+			}
+		}
+	})
+
+	t.Run("greeks sets ReturnGreekValue only when asked", func(t *testing.T) {
+		o := base("")
+		req, err := chainRequest("AAPL", "2025-01-17", o)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if req.ReturnGreekValue != nil {
+			t.Error("without -greeks, ReturnGreekValue should be left unset, not sent false")
+		}
+
+		o.greeks = true
+		req, err = chainRequest("AAPL", "2025-01-17", o)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if req.ReturnGreekValue == nil || !*req.ReturnGreekValue {
+			t.Errorf("-greeks should set ReturnGreekValue true, got %#v", req.ReturnGreekValue)
+		}
+	})
+
+	t.Run("the underlying and expiry reach the request", func(t *testing.T) {
+		req, err := chainRequest("AAPL", "2025-01-17", base(""))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(req.OptionBasic) != 1 || req.OptionBasic[0].Symbol != "AAPL" {
+			t.Fatalf("the underlying should be the single query item, got %#v", req.OptionBasic)
+		}
+		if req.OptionBasic[0].Expiry == 0 {
+			t.Error("the expiry should be converted to epoch millis, not left zero")
+		}
+	})
+
+	t.Run("a malformed expiry is rejected before any request is built", func(t *testing.T) {
+		if _, err := chainRequest("AAPL", "17/01/2025", base("")); err == nil {
+			t.Fatal("a malformed -expiry should be an error")
+		}
+	})
 }
