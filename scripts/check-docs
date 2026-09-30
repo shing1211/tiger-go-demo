@@ -132,8 +132,12 @@ done <"$dfile"
 # The test package reports the SDK figure instead of a percentage, so only the
 # "N% of statements" form counts as coverage; anything else is recorded as a
 # package with no statements of its own, which the table is allowed to list.
-measured=$(sed -n "s#^ok[[:space:]]\+$MODULE/\([^[:space:]]*\)[[:space:]].*coverage: \([0-9.]*\)% of statements#\1 \2#p" "$out" | sort)
-nostmt=$(sed -n "s#^ok[[:space:]]\+$MODULE/\([^[:space:]]*\)[[:space:]].*coverage: .*#\1#p" "$out" \
+#
+# sed -E with "+" rather than "\+", because macOS ships BSD sed, which does not
+# accept the GNU \+ escape in a basic regular expression. The first version of
+# this script used \+ and parsed nothing at all on macOS.
+measured=$(sed -nE "s#^ok[[:space:]]+$MODULE/([^[:space:]]+)[[:space:]].*coverage: ([0-9.]+)% of statements#\1 \2#p" "$out" | sort)
+nostmt=$(sed -nE "s#^ok[[:space:]]+$MODULE/([^[:space:]]+)[[:space:]].*coverage: .*#\1#p" "$out" \
 	| grep -vxF "$(printf '%s\n' "$measured" | cut -d' ' -f1)" | sort)
 
 if [ -z "$measured" ] && [ -z "$nostmt" ]; then
@@ -141,7 +145,7 @@ if [ -z "$measured" ] && [ -z "$nostmt" ]; then
 	status=1
 fi
 
-printf '%s\n' "$measured" >"$out.measured"
+printf '%s\n' "$measured" >"$mfile"
 # Redirect from a file rather than a pipe: a `while` in a pipeline runs in a
 # subshell, so the status it sets would be discarded when the pipeline ends.
 # while-read, not `for row in $measured`: the latter word-splits on the space
@@ -150,20 +154,31 @@ while read -r pkg pct; do
 	[ -n "$pkg" ] || continue
 	# The README cell is bold, and internal/tigersdk carries a leading tilde to
 	# signal a figure that is not exact. Strip both before comparing.
-	cell=$(sed -n "s#^| \`$pkg\` | \*\*~*\([0-9.]*\)%\*\*.*#\1#p" "$README" | head -n 1 || true)
+	cell=$(sed -nE "s#^\| \`$pkg\` \| \*\*~*([0-9.]+)%\*\*.*#\1#p" "$README" | head -n 1 || true)
 	if [ -z "$cell" ]; then
 		echo "check-docs: $pkg has no row in the $README coverage table (measured $pct%)."
 		echo "check-docs: add it, keeping the table sorted by coverage."
 		status=1
-	elif [ "$cell" != "$pct" ]; then
-		echo "check-docs: $README says $pkg is $cell%, the run measures $pct%."
+		continue
+	fi
+	# A tolerance, because statement coverage is not identical on every
+	# platform: this table was measured on Windows, and internal/config comes out
+	# 0.7pp higher on Linux. An exact comparison would fail the gate on two of
+	# three runners for a reason that has nothing to do with the code, and a gate
+	# that cries wolf gets ignored. One point is far below the smallest real
+	# drift -- adding a test to a package moves it by whole points -- so this
+	# still trips on staleness, which is the whole point of the step.
+	if ! awk -v a="$cell" -v b="$pct" 'BEGIN { d = a - b; if (d < 0) d = -d; exit (d <= 1.0) ? 0 : 1 }'; then
+		echo "check-docs: $README says $pkg is $cell%, this runner measures $pct%."
+		echo "check-docs: differences within 1pp are tolerated for platform variance;"
+		echo "check-docs: beyond that the published figure is stale."
 		status=1
 	fi
-done <"$out.measured"
+done <"$mfile"
 
 # A package that gained coverage and left the table behind would not be caught
 # by the loop above, which only walks what the run measured.
-table_pkgs=$(sed -n 's#^| `\([^`]*\)` | \(no statements\|\*\*~*[0-9.]*%\*\*\).*#\1#p' "$README" | sort)
+table_pkgs=$(sed -nE 's#^\| `([^`]*)` \| (no statements|\*\*~*[0-9.]+%\*\*).*#\1#p' "$README" | sort)
 known=$(printf '%s\n%s\n' "$measured" "$nostmt" | cut -d' ' -f1 | grep -v '^$' | sort)
 for pkg in $table_pkgs; do
 	if ! printf '%s\n' "$known" | grep -qx "$pkg"; then

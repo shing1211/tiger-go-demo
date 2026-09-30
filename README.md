@@ -1784,7 +1784,13 @@ its `PASS` — which is how an earlier version of this section came to claim 746
 while its own command printed 1203. `scripts/check-docs` now runs the command
 above and fails if this paragraph disagrees with it.
 
-Per-package statement coverage:
+Per-package statement coverage. These figures were measured on Windows; they are
+not identical everywhere, so `scripts/check-docs` tolerates a difference of up to
+one percentage point per package when it runs on another platform. `internal/config`
+is the one that moves — 81.4% on Windows, 82.1% on Linux — which is why the
+tolerance exists and why it is one point rather than exact: adding a test to any
+package here moves it by whole points, so anything larger is staleness, not
+platform noise.
 
 | Package | Coverage | What it covers |
 |---|---|---|
