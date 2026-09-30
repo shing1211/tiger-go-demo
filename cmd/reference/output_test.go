@@ -972,3 +972,56 @@ func TestPrintRefKlinePageBars(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintKlineQuota(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlineQuota([]sdkmodel.KlineQuota{
+				{Method: "quote_kline_v2", Used: 120, Quota: 5000,
+					Detail: []sdkmodel.KlineQuotaDetail{
+						{Symbol: "AAPL", Market: "STOCK", UsedBars: 120, QuotaBars: 4000},
+					}},
+			}, 20)
+		})
+		for _, want := range []string{"quote_kline_v2", "used=120", "quota=5000", "detail=1", "AAPL"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says no quota returned", func(t *testing.T) {
+		got := capture(t, func() { printKlineQuota(nil, 20) })
+		if !strings.Contains(got, "(no quota returned)") {
+			t.Errorf("an empty quota list should say no quota returned; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates the detail rows", func(t *testing.T) {
+		// This endpoint is the first thing to check when a bar query starts
+		// failing, so the detail rows are what the reader is scanning for. The
+		// per-symbol line already reports how many detail rows exist, so a capped
+		// one still tells the reader that rows were left out.
+		got := capture(t, func() {
+			printKlineQuota([]sdkmodel.KlineQuota{
+				{Method: "quote_kline_v2", Used: 2, Quota: 5000,
+					Detail: []sdkmodel.KlineQuotaDetail{
+						{Symbol: "AAA", Market: "STOCK", UsedBars: 1},
+						{Symbol: "BBB", Market: "STOCK", UsedBars: 1},
+					}},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("detail rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a detail row past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "detail=2") {
+			t.Errorf("the summary line should still report how many detail rows there are; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated detail list should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+}

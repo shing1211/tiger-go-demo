@@ -896,6 +896,31 @@ func opKlinePage(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 	return nil
 }
 
+// printKlineQuota renders how much k-line quota the account has left, and which
+// symbols spent it.
+//
+// The method-level loop is uncapped and the limit applies to the per-symbol
+// detail under each method, because the method lines are one per API version
+// (a handful) while the detail lines are one per symbol quoted in a session. The
+// summary line carries the detail count either way, so a capped detail list
+// still says how many symbols it holds.
+func printKlineQuota(quotas []sdkmodel.KlineQuota, limit int) {
+	if len(quotas) == 0 {
+		fmt.Fprintln(out, "  (no quota returned)")
+		return
+	}
+	for _, q := range quotas {
+		fmt.Fprintf(out, "  %-20s used=%-8d quota=%-8d detail=%d\n", rocli.Dash(q.Method), q.Used, q.Quota, len(q.Detail))
+		for i, d := range q.Detail {
+			if i >= limit {
+				rocli.Truncate(out, i, len(q.Detail), limit)
+				break
+			}
+			fmt.Fprintf(out, "    %v\n", d)
+		}
+	}
+}
+
 // opKlineQuota reports how much k-line quota the account has left, which is the
 // first thing to check when a bar query starts failing.
 func opKlineQuota(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
@@ -907,16 +932,7 @@ func opKlineQuota(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 		return fmt.Errorf("get kline quota: %w", err)
 	}
 	rocli.Section(out, "k-line quota")
-	if len(quotas) == 0 {
-		fmt.Fprintln(out, "  (no quota returned)")
-		return nil
-	}
-	for _, q := range quotas {
-		fmt.Fprintf(out, "  %-20s used=%-8d quota=%-8d detail=%d\n", rocli.Dash(q.Method), q.Used, q.Quota, len(q.Detail))
-		for _, d := range q.Detail {
-			fmt.Fprintf(out, "    %v\n", d)
-		}
-	}
+	printKlineQuota(quotas, o.Limit)
 	return nil
 }
 
