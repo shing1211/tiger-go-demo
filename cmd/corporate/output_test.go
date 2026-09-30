@@ -264,6 +264,41 @@ func TestPrintFundSymbols(t *testing.T) {
 	})
 }
 
+func TestPrintFundContracts(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFundContracts([]sdkmodel.FundContractInfo{
+				{Symbol: "AAPL", Name: "Class A", NetAssetVal: 100.0},
+			}, 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain AAPL, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printFundContracts(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty result should say 'no rows returned', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printFundContracts([]sdkmodel.FundContractInfo{
+				{Symbol: "AAA"},
+				{Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("row within limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("row past limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintCorporateActions(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {

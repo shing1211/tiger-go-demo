@@ -438,18 +438,26 @@ func opFundContracts(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 		return fmt.Errorf("get fund contracts (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "fund contracts")
+	printFundContracts(contracts, o.Limit)
+	return nil
+}
+
+func printFundContracts(contracts []sdkmodel.FundContractInfo, limit int) {
+	if len(contracts) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-14s %-30s %-8s %-10s %-12s %10s %8s\n",
 		"SYMBOL", "NAME", "CCY", "TYPE", "INCEPTION", "NAV", "ER")
 	for i, c := range contracts {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(contracts), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(contracts), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-14s %-30s %-8s %-10s %-12s %10.4f %8.4f\n",
 			rocli.Dash(c.Symbol), rocli.Dash(c.Name), rocli.Dash(c.Currency), rocli.Dash(c.FundType),
 			rocli.Dash(c.Inception), c.NetAssetVal, c.ExpenseRatio)
 	}
-	return nil
 }
 
 func opFundQuote(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
