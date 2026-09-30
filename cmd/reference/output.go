@@ -262,6 +262,23 @@ func opStockFundamental(ctx context.Context, qc *sdkquote.QuoteClient, o options
 	return nil
 }
 
+// printFinancialDaily renders a daily time series of named fundamental fields.
+func printFinancialDaily(dailies []sdkmodel.FinancialDailyItem, limit int) {
+	if len(dailies) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-20s %-14s %18s\n", "SYMBOL", "FIELD", "DATE", "VALUE")
+	for i, it := range dailies {
+		if i >= limit {
+			rocli.Truncate(out, i, len(dailies), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-20s %-14s %18.4f\n",
+			it.Symbol, it.Field, rocli.MSFmt(it.Date), it.Value)
+	}
+}
+
 // opFinancialDaily returns a daily time series of named fundamental fields.
 //
 // -fields is required by the API, so an empty value is refused here rather than
@@ -289,15 +306,7 @@ func opFinancialDaily(ctx context.Context, qc *sdkquote.QuoteClient, o options) 
 		return fmt.Errorf("get financial daily (%s, fields=%s): %w", strings.Join(symbols, ","), strings.Join(fields, ","), err)
 	}
 	rocli.Section(out, "financial daily")
-	fmt.Fprintf(out, "  %-12s %-20s %-14s %18s\n", "SYMBOL", "FIELD", "DATE", "VALUE")
-	for i, it := range items {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(items), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-20s %-14s %18.4f\n",
-			it.Symbol, it.Field, rocli.MSFmt(it.Date), it.Value)
-	}
+	printFinancialDaily(items, o.Limit)
 	return nil
 }
 
