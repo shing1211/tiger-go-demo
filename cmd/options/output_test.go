@@ -299,3 +299,86 @@ func TestPrintOptionBriefs(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintKlines(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlines([]sdkmodel.Kline{
+				{
+					Symbol:        "AAPL",
+					NextPageToken: "",
+					Items: []sdkmodel.KlineItem{
+						{Time: 1737116400000, Open: 100.0, High: 101.0, Low: 99.0, Close: 100.5, Volume: 1234},
+					},
+				},
+			}, "w1", 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain AAPL, got:\n%s", got)
+		}
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("output should contain 100.5000, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlines(nil, "w1", 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty klines should say 'no rows', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit_truncates_inner_loop", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlines([]sdkmodel.Kline{
+				{
+					Symbol:        "AAPL",
+					NextPageToken: "",
+					Items: []sdkmodel.KlineItem{
+						{Time: 1737116400000, Open: 100.0, High: 101.0, Low: 99.0, Close: 100.5, Volume: 1234},
+						{Time: 1737116460000, Open: 100.5, High: 102.0, Low: 100.0, Close: 101.5, Volume: 2345},
+					},
+				},
+			}, "w1", 1)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("first item should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "101.5000") {
+			t.Errorf("second item should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
+
+func TestPrintKlinesPlain(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlinesPlain([]sdkmodel.Kline{
+				{
+					Symbol:        "AAPL",
+					NextPageToken: "",
+					Items: []sdkmodel.KlineItem{
+						{Time: 1737116400000, Open: 100.0, High: 101.0, Low: 99.0, Close: 100.5, Volume: 1234},
+					},
+				},
+			}, "w1", 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain AAPL, got:\n%s", got)
+		}
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("output should contain 100.5000, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlinesPlain(nil, "w1", 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty klines should say 'no rows', got:\n%s", got)
+		}
+	})
+}

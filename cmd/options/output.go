@@ -207,6 +207,46 @@ func printOptionBriefs(briefs []sdkmodel.Brief, limit int) {
 	}
 }
 
+func printKlines(klines []sdkmodel.Kline, period string, limit int) {
+	if len(klines) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	rocli.Section(out, "option k-lines (period=%s)", period)
+	for _, k := range klines {
+		fmt.Fprintf(out, "  %s next_page_token=%s\n", k.Symbol, rocli.Dash(k.NextPageToken))
+		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
+		for i, it := range k.Items {
+			if i >= limit {
+				rocli.Truncate(out, i, len(k.Items), limit)
+				break
+			}
+			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
+				rocli.MSFmt(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
+		}
+	}
+}
+
+func printKlinesPlain(klines []sdkmodel.Kline, period string, limit int) {
+	if len(klines) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	rocli.Section(out, "option k-lines, server-selected range (period=%s)", period)
+	for _, k := range klines {
+		fmt.Fprintf(out, "  %s next_page_token=%s\n", k.Symbol, rocli.Dash(k.NextPageToken))
+		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
+		for i, it := range k.Items {
+			if i >= limit {
+				rocli.Truncate(out, i, len(k.Items), limit)
+				break
+			}
+			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
+				rocli.MSFmt(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
+		}
+	}
+}
+
 // ---- kline ----
 
 // opKline uses GetOptionKlineWithOpts, the variant that accepts a limit and a
@@ -223,19 +263,7 @@ func opKline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err != nil {
 		return fmt.Errorf("get option kline (period=%s, sort=%s): %w", o.period, rocli.DashOr(o.sortDir, "sdk default"), err)
 	}
-	rocli.Section(out, "option k-lines (period=%s)", o.period)
-	for _, k := range klines {
-		fmt.Fprintf(out, "  %s next_page_token=%s\n", k.Symbol, rocli.Dash(k.NextPageToken))
-		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
-		for i, it := range k.Items {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, len(k.Items), o.Limit)
-				break
-			}
-			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
-				rocli.MSFmt(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
-		}
-	}
+	printKlines(klines, o.period, o.Limit)
 	return nil
 }
 
@@ -254,19 +282,7 @@ func opKlinePlain(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 	if err != nil {
 		return fmt.Errorf("get option kline (period=%s): %w", o.period, err)
 	}
-	rocli.Section(out, "option k-lines, server-selected range (period=%s)", o.period)
-	for _, k := range klines {
-		fmt.Fprintf(out, "  %s next_page_token=%s\n", k.Symbol, rocli.Dash(k.NextPageToken))
-		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
-		for i, it := range k.Items {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, len(k.Items), o.Limit)
-				break
-			}
-			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
-				rocli.MSFmt(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
-		}
-	}
+	printKlinesPlain(klines, o.period, o.Limit)
 	return nil
 }
 
