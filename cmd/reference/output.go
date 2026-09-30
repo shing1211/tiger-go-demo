@@ -310,6 +310,23 @@ func opFinancialDaily(ctx context.Context, qc *sdkquote.QuoteClient, o options) 
 	return nil
 }
 
+// printFinancialReport renders period-report figures (annual, quarterly, ...).
+func printFinancialReport(reports []sdkmodel.FinancialReportItem, limit int) {
+	if len(reports) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n", "SYMBOL", "FIELD", "CCY", "FILED", "PERIOD_END", "VALUE")
+	for i, it := range reports {
+		if i >= limit {
+			rocli.Truncate(out, i, len(reports), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n",
+			it.Symbol, it.Field, rocli.Dash(it.Currency), rocli.Dash(it.FilingDate), rocli.Dash(it.PeriodEndDate), rocli.Dash(it.Value))
+	}
+}
+
 // opFinancialReport returns period-report figures (annual, quarterly, ...).
 // Its date bounds are epoch milliseconds, so the YYYY-MM-DD flags are converted.
 func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
@@ -342,15 +359,7 @@ func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 			strings.Join(symbols, ","), strings.Join(fields, ","), rocli.DashOr(o.periodType, "unset"), err)
 	}
 	rocli.Section(out, "financial report")
-	fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n", "SYMBOL", "FIELD", "CCY", "FILED", "PERIOD_END", "VALUE")
-	for i, it := range items {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(items), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-20s %-8s %-12s %-12s %18s\n",
-			it.Symbol, it.Field, rocli.Dash(it.Currency), rocli.Dash(it.FilingDate), rocli.Dash(it.PeriodEndDate), rocli.Dash(it.Value))
-	}
+	printFinancialReport(items, o.Limit)
 	return nil
 }
 

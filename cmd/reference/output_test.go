@@ -330,6 +330,40 @@ func TestPrintStockIndustry(t *testing.T) {
 	})
 }
 
+func TestPrintFinancialReport(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFinancialReport([]sdkmodel.FinancialReportItem{
+				{Symbol: "AAPL", Field: "revenue", Currency: "USD", FilingDate: "2024-01-01", PeriodEndDate: "2023-12-31", Value: "394328000000"},
+			}, 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain %q, got:\n%s", "AAPL", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printFinancialReport(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printFinancialReport([]sdkmodel.FinancialReportItem{
+				{Symbol: "AAA"}, {Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintFinancialDaily(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
