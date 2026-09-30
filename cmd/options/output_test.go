@@ -432,57 +432,56 @@ func TestPrintDepth(t *testing.T) {
 	})
 }
 
-// TODO: uncomment after implementing printTicks
-// func TestPrintTicks(t *testing.T) {
-// 	t.Run("populated", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printTicks([]sdkmodel.TradeTick{
-// 				{
-// 					Symbol:     "AAPL",
-// 					BeginIndex: 0,
-// 					EndIndex:   1,
-// 					Items:      []sdkmodel.TradeTickItem{{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100}},
-// 				},
-// 			}, 20)
-// 		})
-// 		for _, want := range []string{"AAPL", "100.5000"} {
-// 			if !strings.Contains(got, want) {
-// 				t.Errorf("output should contain %q, got:\n%s", want, got)
-// 			}
-// 		}
-// 	})
+func TestPrintTicks(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printTicks([]sdkmodel.TradeTick{
+				{
+					Symbol:     "AAPL",
+					BeginIndex: 0,
+					EndIndex:   1,
+					Items:      []sdkmodel.TradeTickItem{{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100}},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "100.5000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
 
-// 	t.Run("empty", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printTicks(nil, 20)
-// 		})
-// 		if !strings.Contains(got, "no rows") {
-// 			t.Errorf("empty ticks should say 'no rows', got:\n%s", got)
-// 		}
-// 	})
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printTicks(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty ticks should say 'no rows', got:\n%s", got)
+		}
+	})
 
-// 	t.Run("limit_truncates_inner_loop", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printTicks([]sdkmodel.TradeTick{
-// 				{
-// 					Symbol:     "AAPL",
-// 					BeginIndex: 0,
-// 					EndIndex:   2,
-// 					Items: []sdkmodel.TradeTickItem{
-// 						{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100},
-// 						{Time: 1737116460000, Cond: "=", Price: 101.0, Volume: 200},
-// 					},
-// 				},
-// 			}, 1)
-// 		})
-// 		if !strings.Contains(got, "100.5000") {
-// 			t.Errorf("first tick should appear, got:\n%s", got)
-// 		}
-// 		if strings.Contains(got, "101.0000") {
-// 			t.Errorf("second tick should not appear due to limit, got:\n%s", got)
-// 		}
-// 	})
-// }
+	t.Run("limit_truncates_inner_loop", func(t *testing.T) {
+		got := capture(t, func() {
+			printTicks([]sdkmodel.TradeTick{
+				{
+					Symbol:     "AAPL",
+					BeginIndex: 0,
+					EndIndex:   2,
+					Items: []sdkmodel.TradeTickItem{
+						{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100},
+						{Time: 1737116460000, Cond: "=", Price: 101.0, Volume: 200},
+					},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("first tick should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "101.0000") {
+			t.Errorf("second tick should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
 
 // func TestPrintOptionTimeline(t *testing.T) {
 // 	t.Run("populated", func(t *testing.T) {

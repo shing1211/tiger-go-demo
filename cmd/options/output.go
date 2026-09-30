@@ -341,6 +341,25 @@ func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 
 // ---- ticks ----
 
+func printTicks(ticks []sdkmodel.TradeTick, limit int) {
+	if len(ticks) == 0 {
+		fmt.Fprintf(out, "  (no rows returned)\n")
+		return
+	}
+	for _, t := range ticks {
+		fmt.Fprintf(out, "  %s (%d..%d, %d tick(s))\n", t.Symbol, t.BeginIndex, t.EndIndex, len(t.Items))
+		fmt.Fprintf(out, "  %-22s %-8s %10s %10s\n", "TIME", "COND", "PRICE", "VOLUME")
+		for i, it := range t.Items {
+			if i >= limit {
+				rocli.Truncate(out, i, len(t.Items), limit)
+				break
+			}
+			fmt.Fprintf(out, "  %-22s %-8s %10.4f %10d\n",
+				rocli.MSFmt(it.Time), rocli.Dash(it.Cond), it.Price, it.Volume)
+		}
+	}
+}
+
 func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	items, err := parseIdentifiers(rocli.ListRaw(o.ids))
 	if err != nil {
@@ -354,18 +373,7 @@ func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get option trade ticks: %w", err)
 	}
 	rocli.Section(out, "option trade ticks")
-	for _, t := range ticks {
-		fmt.Fprintf(out, "  %s (%d..%d, %d tick(s))\n", t.Symbol, t.BeginIndex, t.EndIndex, len(t.Items))
-		fmt.Fprintf(out, "  %-22s %-8s %10s %10s\n", "TIME", "COND", "PRICE", "VOLUME")
-		for i, it := range t.Items {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, len(t.Items), o.Limit)
-				break
-			}
-			fmt.Fprintf(out, "  %-22s %-8s %10.4f %10d\n",
-				rocli.MSFmt(it.Time), rocli.Dash(it.Cond), it.Price, it.Volume)
-		}
-	}
+	printTicks(ticks, o.Limit)
 	return nil
 }
 
