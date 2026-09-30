@@ -134,3 +134,43 @@ func TestPrintFutureQuotes(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintFutureKlines(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureKlines([]sdkmodel.FutureKline{
+				{Items: []sdkmodel.FutureKlineItem{
+					{Time: 1737116400000, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 1234},
+				}},
+			}, "1d", 10)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("output should contain 100.5000; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printFutureKlines(nil, "1d", 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("empty should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit_truncates_inner_loop", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureKlines([]sdkmodel.FutureKline{
+				{Items: []sdkmodel.FutureKlineItem{
+					{Time: 1, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 1},
+					{Time: 2, Open: 200, High: 201, Low: 199, Close: 200.5, Volume: 2},
+					{Time: 3, Open: 300, High: 301, Low: 299, Close: 300.5, Volume: 3},
+				}},
+			}, "1d", 2)
+		})
+		if !strings.Contains(got, "100.5000") || !strings.Contains(got, "200.5000") {
+			t.Errorf("first two items should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "300.5000") {
+			t.Errorf("third item should be absent; got:\n%s", got)
+		}
+	})
+}

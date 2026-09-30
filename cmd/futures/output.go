@@ -234,23 +234,26 @@ func opKline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get future kline (period=%s): %w", o.period, err)
 	}
 	rocli.Section(out, "future k-lines (period=%s)", o.period)
-	for i, k := range klines {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(klines), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  series %d next_page_token=%s (%d bar(s))\n", i+1, rocli.Dash(k.NextPageToken), len(k.Items))
+	printFutureKlines(klines, o.period, o.Limit)
+	return nil
+}
+
+func printFutureKlines(klines []sdkmodel.FutureKline, period string, limit int) {
+	if len(klines) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for _, k := range klines {
+		fmt.Fprintf(out, "  series next_page_token=%s (%d bar(s))\n", rocli.Dash(k.NextPageToken), len(k.Items))
 		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "OPEN_INT")
 		for j, it := range k.Items {
-			if j >= o.Limit {
-				rocli.Truncate(out, j, len(k.Items), o.Limit)
+			if j >= limit {
 				break
 			}
 			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d %12d\n",
 				rocli.MSFmt(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume, it.OpenInterest)
 		}
 	}
-	return nil
 }
 
 // opKlinePage uses the paged variant, which takes a total/page size rather than
