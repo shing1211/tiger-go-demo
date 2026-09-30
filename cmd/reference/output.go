@@ -670,6 +670,23 @@ func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 	return nil
 }
 
+// printIndustryStocks renders the constituents of one industry.
+func printIndustryStocks(stocks []sdkmodel.IndustryStock, limit int) {
+	if len(stocks) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-34s %10s %9s\n", "SYMBOL", "NAME", "CHANGE", "CHG%")
+	for i, s := range stocks {
+		if i >= limit {
+			rocli.Truncate(out, i, len(stocks), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-34s %10.4f %8.2f%%\n",
+			rocli.Dash(s.Symbol), rocli.Dash(s.Name), s.Change, s.ChangeRate)
+	}
+}
+
 // opIndustryStocks lists the constituents of one industry.
 func opIndustryStocks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	id := strings.TrimSpace(o.industryID)
@@ -688,15 +705,7 @@ func opIndustryStocks(ctx context.Context, qc *sdkquote.QuoteClient, o options) 
 		return fmt.Errorf("get industry stocks (industry_id=%s market=%s): %w", id, o.Market, err)
 	}
 	rocli.Section(out, "industry stocks (industry_id=%s)", id)
-	fmt.Fprintf(out, "  %-12s %-34s %10s %9s\n", "SYMBOL", "NAME", "CHANGE", "CHG%")
-	for i, s := range stocks {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(stocks), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-34s %10.4f %8.2f%%\n",
-			rocli.Dash(s.Symbol), rocli.Dash(s.Name), s.Change, s.ChangeRate)
-	}
+	printIndustryStocks(stocks, o.Limit)
 	return nil
 }
 

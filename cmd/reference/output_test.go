@@ -768,3 +768,39 @@ func TestPrintIndustryList(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintIndustryStocks(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printIndustryStocks([]sdkmodel.IndustryStock{
+				{Symbol: "AAPL", Name: "Apple Inc", IndustryID: "1001", Change: 2.05, ChangeRate: 1.10},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "Apple Inc", "2.0500", "1.10%"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printIndustryStocks(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printIndustryStocks([]sdkmodel.IndustryStock{
+				{Symbol: "AAA"}, {Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
