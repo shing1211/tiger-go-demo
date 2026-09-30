@@ -547,6 +547,113 @@ func TestPrintIntradayTimelines(t *testing.T) {
 	})
 }
 
+func TestPrintQuoteDepths(t *testing.T) {
+	t.Run("the longer side sets the row count and the short side is dashed", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printQuoteDepths(w, []sdkmodel.Depth{
+				{
+					Symbol: "AAPL",
+					Bids: []sdkmodel.DepthLevel{
+						{Price: 187.20, Volume: 100, Count: 2},
+						{Price: 187.10, Volume: 200, Count: 3},
+					},
+					Asks: []sdkmodel.DepthLevel{
+						{Price: 187.30, Volume: 300, Count: 1},
+					},
+				},
+			}, "US")
+		})
+		if !strings.Contains(got, "\n== order book depth (market=US) ==") {
+			t.Errorf("the heading should carry the requested market, got:\n%s", got)
+		}
+		if !strings.Contains(got, "  AAPL\n") {
+			t.Errorf("the symbol should print on its own line, got:\n%s", got)
+		}
+		for _, want := range []string{
+			// Both bids, the first ask, and the second ask as a dash: the row
+			// count follows the deeper side so a lopsided book stays aligned.
+			fmt.Sprintf("  %-10s %10s %10s   %10s %10s", "187.2000", "100", "2", "187.3000", "300"),
+			fmt.Sprintf("  %-10s %10s %10s   %10s %10s", "187.1000", "200", "3", "-", "-"),
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("more asks than bids dashes the bid side", func(t *testing.T) {
+		// The mirror of the case above, and the one that exercises the other
+		// dash: the row count is the same either way, and the missing side is
+		// "-" in the ask columns too, not a blank that would read as a level.
+		got := capture(t, func(w io.Writer) {
+			printQuoteDepths(w, []sdkmodel.Depth{
+				{
+					Symbol: "AAPL",
+					Bids:   []sdkmodel.DepthLevel{{Price: 187.20, Volume: 100, Count: 2}},
+					Asks: []sdkmodel.DepthLevel{
+						{Price: 187.30, Volume: 300, Count: 1},
+						{Price: 187.40, Volume: 400, Count: 4},
+					},
+				},
+			}, "US")
+		})
+		for _, want := range []string{
+			fmt.Sprintf("  %-10s %10s %10s   %10s %10s", "187.2000", "100", "2", "187.3000", "300"),
+			fmt.Sprintf("  %-10s %10s %10s   %10s %10s", "-", "-", "-", "187.4000", "400"),
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("the book is capped at ten rows", func(t *testing.T) {
+		levels := func(n int) []sdkmodel.DepthLevel {
+			out := make([]sdkmodel.DepthLevel, n)
+			for i := range out {
+				out[i] = sdkmodel.DepthLevel{Price: float64(100 + i), Volume: int64(1000 + i), Count: 1}
+			}
+			return out
+		}
+		got := capture(t, func(w io.Writer) {
+			printQuoteDepths(w, []sdkmodel.Depth{{Symbol: "AAPL", Bids: levels(12), Asks: levels(12)}}, "US")
+		})
+		// The cap is a literal 10, not -limit, and it prints no notice: the
+		// eleventh level is simply absent. Both are unchanged behaviour.
+		if !strings.Contains(got, "109.0000") {
+			t.Errorf("the tenth level should print, got:\n%s", got)
+		}
+		if strings.Contains(got, "110.0000") {
+			t.Errorf("the eleventh level should not print, got:\n%s", got)
+		}
+		if strings.Contains(got, "not shown") || strings.Contains(got, "more row") {
+			t.Errorf("this cap prints no truncation notice, got:\n%s", got)
+		}
+	})
+
+	t.Run("a book with no levels prints the header and no rows", func(t *testing.T) {
+		// The column header sits outside the row loop, so a symbol with an
+		// empty book still shows its columns - with nothing under them. The
+		// header row is what makes that readable as an empty book rather than
+		// a rendering that failed halfway.
+		got := capture(t, func(w io.Writer) {
+			printQuoteDepths(w, []sdkmodel.Depth{{Symbol: "AAPL"}}, "US")
+		})
+		want := "\n== order book depth (market=US) ==\n  AAPL\n" +
+			fmt.Sprintf("  %-10s %10s %10s   %10s %10s\n", "BID", "SIZE", "COUNT", "ASK", "SIZE")
+		if got != want {
+			t.Errorf("an empty book should print the symbol and the header only\n got: %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("no symbols prints the heading and nothing else", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) { printQuoteDepths(w, nil, "HK") })
+		if got != "\n== order book depth (market=HK) ==\n" {
+			t.Errorf("an empty response should print the heading only, got:\n%q", got)
+		}
+	})
+}
+
 // TestSplitSymbols covers the -symbols parsing the default path uses, including
 // the case that must not reach Tiger: an empty flag.
 func TestSplitSymbols(t *testing.T) {

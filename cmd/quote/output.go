@@ -241,14 +241,16 @@ func printTimeline(ctx context.Context, qc *sdkquote.QuoteClient, symbols []stri
 	return nil
 }
 
-func printDepth(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, market string, w io.Writer) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("context: %w", err)
-	}
-	depths, err := qc.GetQuoteDepth(sdkmodel.DepthQuoteRequest{Symbols: symbols, Market: market})
-	if err != nil {
-		return fmt.Errorf("get depth: %w", err)
-	}
+// printQuoteDepths renders the order book, bids on the left and asks on the
+// right. It is separated from the call below so the rendering can be tested
+// without a credentialed round trip.
+//
+// The row count is the deeper of the two sides, so a lopsided book stays
+// aligned: the missing side is dashed rather than left blank, which would read
+// as a real level. The ten-row cap is a literal, not -limit, and unlike
+// printIntradayTimelines it prints no notice - the rest of the book is simply
+// absent. Both are unchanged behaviour.
+func printQuoteDepths(w io.Writer, depths []sdkmodel.Depth, market string) {
 	fmt.Fprintf(w, "\n== order book depth (market=%s) ==\n", market)
 	for _, d := range depths {
 		fmt.Fprintf(w, "  %s\n", d.Symbol)
@@ -272,6 +274,17 @@ func printDepth(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string,
 			fmt.Fprintf(w, "  %-10s %10s %10s   %10s %10s\n", bp, bs, bc, ap, as)
 		}
 	}
+}
+
+func printDepth(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, market string, w io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	depths, err := qc.GetQuoteDepth(sdkmodel.DepthQuoteRequest{Symbols: symbols, Market: market})
+	if err != nil {
+		return fmt.Errorf("get depth: %w", err)
+	}
+	printQuoteDepths(w, depths, market)
 	return nil
 }
 
