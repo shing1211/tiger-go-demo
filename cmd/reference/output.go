@@ -936,6 +936,10 @@ func printTimelineHistoryRows(w io.Writer, tls []sdkmodel.Timeline, limit int) {
 }
 
 func printBriefs(briefs []sdkmodel.Brief, limit int) {
+	if len(briefs) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-12s %10s %10s %9s %12s %-20s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")
 	for i, b := range briefs {
 		if i >= limit {

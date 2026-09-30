@@ -125,6 +125,10 @@ func chainRequest(underlying, expiry string, o options) (sdkmodel.OptionChainReq
 }
 
 func printChains(chains []sdkmodel.OptionChain, o options) {
+	if len(chains) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	for _, c := range chains {
 		fmt.Fprintf(out, "  %s expiry=%s  %d strike row(s)\n", c.Symbol, rocli.MSFmt(c.Expiry), len(c.Items))
 		fmt.Fprintf(out, "  %-10s %-10s %-10s | %-10s %-10s %-10s\n", "PUT", "BID", "ASK", "CALL", "BID", "ASK")

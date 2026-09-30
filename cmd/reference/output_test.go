@@ -12,17 +12,19 @@ import (
 )
 
 // These cover the renderers that were split from their SDK calls so they can be
-// reached without a live account. Every other renderer in this package is still
-// untested, and the README says so by name — see "cmd/corporate, cmd/futures and
-// cmd/reference are at 0.0%".
+// reached without a live account. The README names the rest of the package's
+// renderers in its coverage ceiling at "cmd/corporate, cmd/futures and
+// cmd/reference are at 2–5%".
 //
 // Nothing here makes a request. The rendering is exercised against hand-built
 // model values; the SDK call needs real credentials, which this project does not
 // have.
 
 // capture redirects the package-level out for the duration of one call and
-// returns what was written. Every printer in this package writes to out rather
-// than taking a writer, so this is the seam that makes them reachable at all.
+// returns what was written. Most printers in this package write to out; the
+// three that take a writer (printTradeRank, printTimelineHistory,
+// printTimelineHistoryRows) are called with that writer inside capture so the
+// same helper works for all of them.
 func capture(t *testing.T, fn func()) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -152,6 +154,140 @@ func TestPrintTimelineHistory(t *testing.T) {
 		got := capture(t, func() { printTimelineHistory(out, nil) })
 		if !strings.Contains(got, "no rows") {
 			t.Errorf("an empty timeline should say so; got:\n%s", got)
+		}
+	})
+}
+
+func TestPrintBriefs(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printBriefs([]sdkmodel.Brief{
+				{Symbol: "AAPL", LatestPrice: 187.2500, Change: 2.05, ChangeRate: 1.10, Volume: 51000000, LatestTime: 1767225600000},
+				{Symbol: "NVDA", LatestPrice: 141.3200, Change: 11.10, ChangeRate: 8.52, Volume: 41000000, LatestTime: 1767225600000},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "NVDA", "187.2500", "141.3200", "1.10%", "8.52%"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("truncation is stated", func(t *testing.T) {
+		got := capture(t, func() {
+			printBriefs([]sdkmodel.Brief{
+				{Symbol: "AAA", LatestPrice: 1, Change: 0, ChangeRate: 0, Volume: 1, LatestTime: 0},
+				{Symbol: "BBB", LatestPrice: 2, Change: 0, ChangeRate: 0, Volume: 2, LatestTime: 0},
+				{Symbol: "CCC", LatestPrice: 3, Change: 0, ChangeRate: 0, Volume: 3, LatestTime: 0},
+			}, 2)
+		})
+		if !strings.Contains(got, "AAA") || !strings.Contains(got, "BBB") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "CCC") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated result should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+
+	t.Run("absent time is dashed, not 1970", func(t *testing.T) {
+		got := capture(t, func() {
+			printBriefs([]sdkmodel.Brief{
+				{Symbol: "ZZZ", LatestPrice: 99.99, Change: 0, ChangeRate: 0, Volume: 0, LatestTime: 0},
+			}, 20)
+		})
+		if !strings.Contains(got, "-") {
+			t.Errorf("an absent LatestTime should render as a dash; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printBriefs(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty briefs list should say so; got:\n%s", got)
+		}
+	})
+}
+
+func TestPrintBrokerSide(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printBrokerSide("bid", []sdkmodel.StockBrokerItem{
+				{Level: 1, Price: 187.2500, Brokers: []sdkmodel.BrokerDetail{{ID: "b1", Name: "Goldman Sachs"}, {ID: "b2", Name: "Morgan Stanley"}}},
+				{Level: 2, Price: 187.2400, Brokers: []sdkmodel.BrokerDetail{{ID: "b3", Name: "Citadel"}}},
+			})
+		})
+		for _, want := range []string{"bid side:", "level=1", "187.2500", "Goldman Sachs", "Morgan Stanley", "level=2", "187.2400", "Citadel"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if !strings.Contains(got, "Goldman Sachs, Morgan Stanley") {
+			t.Errorf("broker names should be joined with ', '; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty side says none", func(t *testing.T) {
+		got := capture(t, func() { printBrokerSide("ask", nil) })
+		if !strings.Contains(got, "ask: (none)") {
+			t.Errorf("a nil side should say none; got:\n%s", got)
+		}
+	})
+
+	t.Run("a level with no brokers still names its level and price", func(t *testing.T) {
+		got := capture(t, func() {
+			printBrokerSide("bid", []sdkmodel.StockBrokerItem{
+				{Level: 1, Price: 187.2500, Brokers: nil},
+			})
+		})
+		if !strings.Contains(got, "level=1") || !strings.Contains(got, "187.2500") {
+			t.Errorf("level and price should print even with no brokers; got:\n%s", got)
+		}
+	})
+
+	t.Run("missing broker name is dashed", func(t *testing.T) {
+		got := capture(t, func() {
+			printBrokerSide("bid", []sdkmodel.StockBrokerItem{
+				{Level: 1, Price: 100.0000, Brokers: []sdkmodel.BrokerDetail{{ID: "", Name: ""}}},
+			})
+		})
+		if !strings.Contains(got, "-") {
+			t.Errorf("a missing broker name should render as a dash; got:\n%s", got)
+		}
+	})
+}
+
+func TestPrintTimelineHistoryRowsLimit(t *testing.T) {
+	t.Run("truncation is stated at non-default limit", func(t *testing.T) {
+		at := func(clock string) int64 {
+			t.Helper()
+			ts, err := time.ParseInLocation("2006-01-02 15:04:05", "2026-06-19 "+clock+":00", time.Local)
+			if err != nil {
+				t.Fatalf("parse %q: %v", clock, err)
+			}
+			return ts.UnixMilli()
+		}
+		got := capture(t, func() {
+			printTimelineHistoryRows(out, []sdkmodel.Timeline{
+				{Symbol: "AAPL", Period: "2026-06-19", PreClose: 187.10,
+					Intraday: &sdkmodel.TimelineBucket{Items: []sdkmodel.TimelineItem{
+						{Time: at("09:30"), Price: 187.30, AvgPrice: 187.25, Volume: 1000},
+						{Time: at("09:31"), Price: 187.35, AvgPrice: 187.28, Volume: 800},
+						{Time: at("09:32"), Price: 187.40, AvgPrice: 187.30, Volume: 1200},
+					}},
+				},
+			}, 2)
+		})
+		if !strings.Contains(got, "09:30") || !strings.Contains(got, "09:31") {
+			t.Errorf("items within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "09:32") {
+			t.Errorf("items past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated bucket should say how many rows were dropped; got:\n%s", got)
 		}
 	})
 }
