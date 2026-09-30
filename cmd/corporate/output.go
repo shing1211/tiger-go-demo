@@ -473,16 +473,24 @@ func opFundQuote(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 		return fmt.Errorf("get fund quote (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "fund quotes")
+	printFundQuotes(quotes, o.Limit)
+	return nil
+}
+
+func printFundQuotes(quotes []sdkmodel.FundQuote, limit int) {
+	if len(quotes) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-14s %12s %10s %9s %-12s\n", "SYMBOL", "NAV", "CHANGE", "CHG%", "DATE")
 	for i, q := range quotes {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(quotes), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(quotes), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-14s %12.4f %10.4f %8.2f%% %-12s\n",
 			rocli.Dash(q.Symbol), q.LatestNav, q.Change, q.ChangeRate, rocli.Dash(q.Date))
 	}
-	return nil
 }
 
 func opFundHistory(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
