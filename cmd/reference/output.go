@@ -484,6 +484,23 @@ func opShortInterest(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 
 // ---- calendars and screens ----
 
+// printCalendar renders which days a market trades.
+func printCalendar(calendars []sdkmodel.TradingCalendarItem, limit int) {
+	if len(calendars) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-8s %-12s %-10s %-16s\n", "MARKET", "DATE", "TRADING", "SESSION")
+	for i, d := range calendars {
+		if i >= limit {
+			rocli.Truncate(out, i, len(calendars), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-8s %-12s %-10v %-16s\n",
+			rocli.Dash(d.Market), rocli.Dash(d.Date), d.IsTrading, rocli.Dash(d.SessionType))
+	}
+}
+
 // opCalendar reports which days a market trades.
 func opCalendar(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -500,15 +517,7 @@ func opCalendar(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 			o.Market, rocli.DashOr(o.beginDate, "open"), rocli.DashOr(o.endDate, "open"), err)
 	}
 	rocli.Section(out, "trading calendar (market=%s)", o.Market)
-	fmt.Fprintf(out, "  %-8s %-12s %-10s %-16s\n", "MARKET", "DATE", "TRADING", "SESSION")
-	for i, d := range days {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(days), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-8s %-12s %-10v %-16s\n",
-			rocli.Dash(d.Market), rocli.Dash(d.Date), d.IsTrading, rocli.Dash(d.SessionType))
-	}
+	printCalendar(days, o.Limit)
 	return nil
 }
 
