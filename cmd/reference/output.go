@@ -633,6 +633,26 @@ func opScannerTags(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 	return printScannerTags(out, groups)
 }
 
+// printIndustryList renders Tiger's industry classification table.
+//
+// The empty case skips the header as well as the rows: a header with nothing
+// under it reads like a query that matched nothing, which is a different claim
+// from the server having sent no classification table at all.
+func printIndustryList(industries []sdkmodel.IndustryItem, limit int) {
+	if len(industries) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-8s %-40s\n", "ID", "LEVEL", "NAME")
+	for i, it := range industries {
+		if i >= limit {
+			rocli.Truncate(out, i, len(industries), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-40s\n", rocli.Dash(it.ID), rocli.Dash(it.Level), rocli.Dash(it.Name))
+	}
+}
+
 // opIndustryList lists Tiger's industry classifications.
 func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -646,14 +666,7 @@ func opIndustryList(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		return fmt.Errorf("get industry list (level=%s): %w", rocli.DashOr(o.industryLvl, "all"), err)
 	}
 	rocli.Section(out, "industry list (level=%s)", rocli.DashOr(o.industryLvl, "all"))
-	fmt.Fprintf(out, "  %-12s %-8s %-40s\n", "ID", "LEVEL", "NAME")
-	for i, it := range items {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(items), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-8s %-40s\n", rocli.Dash(it.ID), rocli.Dash(it.Level), rocli.Dash(it.Name))
-	}
+	printIndustryList(items, o.Limit)
 	return nil
 }
 

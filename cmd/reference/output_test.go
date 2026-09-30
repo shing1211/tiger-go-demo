@@ -732,3 +732,39 @@ func TestPrintTimelineHistoryRowsLimit(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintIndustryList(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printIndustryList([]sdkmodel.IndustryItem{
+				{ID: "1001", Name: "Software - Infrastructure", Level: "1"},
+			}, 20)
+		})
+		for _, want := range []string{"1001", "Software - Infrastructure", "1"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printIndustryList(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printIndustryList([]sdkmodel.IndustryItem{
+				{ID: "1001"}, {ID: "1002"},
+			}, 1)
+		})
+		if !strings.Contains(got, "1001") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "1002") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
