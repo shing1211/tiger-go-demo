@@ -304,6 +304,31 @@ func printKlinePageBars(bars []sdkmodel.FutureKlineItem, limit int) {
 
 // ---- microstructure ----
 
+func printFutureDepth(depth *sdkmodel.FutureDepth, limit int) {
+	if depth == nil {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	n := len(depth.Asks)
+	if len(depth.Bids) > n {
+		n = len(depth.Bids)
+	}
+	fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", "BID", "SIZE", "ASK", "SIZE")
+	for i := 0; i < n; i++ {
+		if i >= limit {
+			break
+		}
+		bp, bs, ap, as := "-", "-", "-", "-"
+		if i < len(depth.Bids) {
+			bp, bs = rocli.Px(depth.Bids[i].Price), fmt.Sprintf("%d", depth.Bids[i].Volume)
+		}
+		if i < len(depth.Asks) {
+			ap, as = rocli.Px(depth.Asks[i].Price), fmt.Sprintf("%d", depth.Asks[i].Volume)
+		}
+		fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", bp, bs, ap, as)
+	}
+}
+
 // opDepth fetches the futures order book.
 func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	codes := rocli.List(o.codes)
@@ -323,25 +348,7 @@ func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	rocli.Section(out, "future order book")
 	for _, d := range depths {
 		fmt.Fprintf(out, "  %s as_of=%s\n", rocli.Dash(d.ContractCode), rocli.MSFmt(d.Timestamp))
-		n := len(d.Asks)
-		if len(d.Bids) > n {
-			n = len(d.Bids)
-		}
-		fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", "BID", "SIZE", "ASK", "SIZE")
-		for i := 0; i < n; i++ {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, n, o.Limit)
-				break
-			}
-			bp, bs, ap, as := "-", "-", "-", "-"
-			if i < len(d.Bids) {
-				bp, bs = rocli.Px(d.Bids[i].Price), fmt.Sprintf("%d", d.Bids[i].Volume)
-			}
-			if i < len(d.Asks) {
-				ap, as = rocli.Px(d.Asks[i].Price), fmt.Sprintf("%d", d.Asks[i].Volume)
-			}
-			fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", bp, bs, ap, as)
-		}
+		printFutureDepth(&d, o.Limit)
 	}
 	return nil
 }

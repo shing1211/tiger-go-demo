@@ -208,3 +208,41 @@ func TestPrintKlinePageBars(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintFutureDepth(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureDepth(&sdkmodel.FutureDepth{
+				Bids: []sdkmodel.DepthLevel{{Price: 100, Volume: 10, Count: 2}},
+				Asks: []sdkmodel.DepthLevel{{Price: 101, Volume: 5, Count: 1}},
+			}, 10)
+		})
+		if !strings.Contains(got, "100.0000") {
+			t.Errorf("output should contain 100.0000; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty/nil", func(t *testing.T) {
+		got := capture(t, func() { printFutureDepth(nil, 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("nil should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureDepth(&sdkmodel.FutureDepth{
+				Bids: []sdkmodel.DepthLevel{
+					{Price: 100, Volume: 10},
+					{Price: 99, Volume: 20},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "100.0000") {
+			t.Errorf("first bid should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "99.0000") {
+			t.Errorf("second bid should be absent; got:\n%s", got)
+		}
+	})
+}
