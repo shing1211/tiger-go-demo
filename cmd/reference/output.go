@@ -139,6 +139,26 @@ func opStockDetails(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 	return nil
 }
 
+// printStockIndustry renders the GICS-style classification ladder.
+func printStockIndustry(industries []sdkmodel.StockIndustry, limit int) {
+	if len(industries) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n", "SYMBOL", "LEVEL", "SECTOR", "GROUP", "INDUSTRY")
+	for i, r := range industries {
+		if i >= limit {
+			rocli.Truncate(out, i, len(industries), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n",
+			rocli.Dash(r.Symbol), rocli.Dash(r.Level), rocli.Dash(r.GSector), rocli.Dash(r.GGroup), rocli.Dash(r.GInd))
+		if r.GSubInd != "" {
+			fmt.Fprintf(out, "    sub-industry=%s\n", r.GSubInd)
+		}
+	}
+}
+
 // opStockIndustry returns the GICS-style classification ladder. The endpoint
 // takes a single symbol, so only the first of -symbols is used.
 func opStockIndustry(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
@@ -159,18 +179,7 @@ func opStockIndustry(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 		return fmt.Errorf("get stock industry (%s): %w", symbol, err)
 	}
 	rocli.Section(out, "stock industry")
-	fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n", "SYMBOL", "LEVEL", "SECTOR", "GROUP", "INDUSTRY")
-	for i, r := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-8s %-24s %-24s %-28s\n",
-			rocli.Dash(r.Symbol), rocli.Dash(r.Level), rocli.Dash(r.GSector), rocli.Dash(r.GGroup), rocli.Dash(r.GInd))
-		if r.GSubInd != "" {
-			fmt.Fprintf(out, "    sub-industry=%s\n", r.GSubInd)
-		}
-	}
+	printStockIndustry(rows, o.Limit)
 	return nil
 }
 
