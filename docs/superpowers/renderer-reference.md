@@ -142,6 +142,47 @@ signature would have made the nil guard unreachable from the handler. Its detail
 loop honours `limit` — confirmed intentional; the summary line still reports the
 true detail count.
 
+## cmd/quote
+
+Split last, and it is the odd one out in two ways. **There is no package-level
+`out`** — every renderer here takes an explicit `w io.Writer` as its first
+parameter, because this package was written before the convention settled. And
+**its caps are literal 10s, not `-limit`**: two renderers truncate at 10 rows by
+literal, and neither honours the flag.
+
+```go
+printEntitlement(w io.Writer, ent *sdkmodel.AddonEntitlement)   // no limit; nil-safe
+printMarketStates(w io.Writer, states []sdkmodel.MarketState)    // empty guard present
+printRealTimeBriefs(w io.Writer, briefs []sdkmodel.Brief)        // no empty guard
+printRealTimeKlines(w io.Writer, klines []sdkmodel.Kline, period string)
+printIntradayTimelines(w io.Writer, tls []sdkmodel.Timeline)     // literal 10-cap
+printQuoteDepths(w io.Writer, depths []sdkmodel.Depth, market string) // literal 10-cap, silent
+```
+
+**Handlers here kept their original `print*` names.** `printMarketState` (holds
+the client) sits next to `printMarketStates` (renders); `printBriefs` next to
+`printRealTimeBriefs`; `printKlines` next to `printRealTimeKlines`;
+`printTimeline` next to `printIntradayTimelines`; `printDepth` next to
+`printQuoteDepths`. The other four packages name their handlers `op*`, so this
+singular/plural pairing is unique to `cmd/quote` and worth knowing before grepping.
+
+Three things here are deliberate, and each is pinned by a test so it cannot change
+without a test failing:
+
+- **Four of the six renderers have no empty-result branch.** On an empty slice they
+  print the heading and nothing else. Adding a guard would be more consistent with
+  the other 60 renderers but would change output, so it was left alone.
+- **The 10-caps ignore `-limit`.** `printIntradayTimelines` announces
+  `... N more point(s)`; `printQuoteDepths` truncates *silently*, which claims a
+  completeness it does not have. That inconsistency is the strongest argument for
+  revisiting both, and the reason not to do it inside a pure-refactor task.
+- **The timeline's notice is hand-rolled**, not `rocli.Truncate`, and reads
+  differently. Left as-is for the same reason.
+
+`truncation_guard_test.go` is deliberately **not** in this package: it looks for
+`if i >= limit` guards, and there are none here, so it would fail its own
+zero-guards sanity check.
+
 ## Documented behaviour decisions
 
 - **`-limit 0` means "no rows" everywhere.** `printChains` was the last renderer

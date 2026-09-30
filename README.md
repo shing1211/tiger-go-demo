@@ -57,7 +57,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (14 packages, 737 cases — see [Test suite](#test-suite)), all eight
+  tests pass (14 packages, 730 cases — see [Test suite](#test-suite)), all eight
   binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -1741,12 +1741,12 @@ ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 ### Test suite
 
 `go test ./...` puts **14** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **737**, across
-223 top-level test functions:
+count — every `=== RUN` and every subtest `--- PASS` line — is **730**, across
+287 top-level test functions:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-737
+730
 $ go test -count=1 ./... | grep -c '^ok'
 14
 ```
@@ -1764,10 +1764,10 @@ Per-package statement coverage:
 | `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
 | `cmd/options` | **44.7%** | Every renderer, plus the option-identifier parsing and the `-op` vocabulary. The residual is handler plumbing, which needs a live account |
+| `cmd/quote` | **43.4%** | Every renderer, including entitlement, market state, briefs, k-lines, timeline and depth. The residual is handler plumbing |
 | `cmd/reference` | **41.3%** | Every renderer, including the four-way scanner group dispatch. The residual is handler plumbing |
 | `cmd/corporate` | **31.9%** | Every renderer. The residual is handler plumbing |
 | `cmd/futures` | **31.7%** | Every renderer. The residual is handler plumbing |
-| `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only. The one data command not yet split — see below |
 | `test` | no statements | Holds only tests: the read-only classification and the coverage enforcement point |
 
 ```console
@@ -1776,7 +1776,7 @@ ok  	cmd/corporate	coverage: 31.9% of statements
 ok  	cmd/futures	coverage: 31.7% of statements
 ok  	cmd/options	coverage: 44.7% of statements
 ok  	cmd/push	coverage: 86.0% of statements
-ok  	cmd/quote	coverage: 21.2% of statements
+ok  	cmd/quote	coverage: 43.4% of statements
 ok  	cmd/reference	coverage: 41.3% of statements
 ok  	cmd/token	coverage: 62.9% of statements
 ok  	cmd/trade	coverage: 57.9% of statements
@@ -1799,33 +1799,33 @@ does:
   live server: the callbacks the SDK invokes, and therefore the payload values
   the renderers format. The shapes are pinned; the values are not, because no
   run in this repo has produced any.
-- **`cmd/quote` at 21.2% covers exactly one endpoint's rendering, and is now the
-  largest remaining ceiling.** The rest of `cmd/quote`'s printers — briefs,
-  k-lines, timeline, depth, market state — are **not** covered, and they are not
-  covered by an oversight that a better test would fix. They take a
-  `*sdkquote.QuoteClient`, a concrete SDK struct, and the SDK offers **no seam to
-  substitute a fake**: no interface, no exported constructor that accepts one, no
-  way to inject a transport. So those printers can be exercised only against a
-  live account, which this project does not have. The entitlement printer avoids
-  the problem by being split from the call (`printAddonEntitlement` calls,
-  `printEntitlement` renders), so the rendering — which is where the
-  absent-versus-zero subtlety lives — is testable offline. `cmd/quote` is the one
-  data command that was not included in the split described below, so its
-  printers still render inline. Applying the same call/render split there is the
-  obvious next step, and it is the same mechanical change.
-- **`cmd/corporate` (31.9%), `cmd/futures` (31.7%) and `cmd/reference` (41.3%)
-  had the same blocker as `cmd/quote` above, and it has since been removed.** Every
-  `op*` function in those three took a `*sdkquote.QuoteClient`, a concrete SDK
-  struct with no interface, no injectable constructor and no transport seam. The
-  fix was the same one already applied to `printAddonEntitlement`: split the call
-  from the rendering, so each handler keeps its SDK call and hands plain data to a
-  `print*` function. All 49 inline renderers across the three have now been split
-  that way and each has a test, which is what moved these packages off 2-5%. What
-  is still uncovered is the handler half — argument validation, the SDK call, and
-  error wrapping — which needs a live account for the same reason as `cmd/quote`.
-- **`cmd/options` is at 44.7%, for the same reason and the same fix.** Its ten
-  `op*` functions no longer render inline; each delegates to a tested `print*`
-  renderer. The residual is handler plumbing, not rendering.
+- **`cmd/quote` is now at 43.4%, and no renderer in the project holds an SDK
+  client any more.** Its entitlement, market-state, brief, k-line, timeline and
+  depth printers all take a `*sdkquote.QuoteClient`, a concrete SDK struct with no
+  interface, no injectable constructor and no transport seam — so they used to be
+  exercisable only against a live account, which this project does not have. All
+  six have been split the same way as the rest: the handler keeps the SDK call and
+  hands plain data to a `print*` renderer. `printAddonEntitlement` calls and
+  `printEntitlement` renders was the first of these; the other five
+  (`printMarketState`, `printBriefs`, `printKlines`, `printTimeline`,
+  `printDepth`) were split later, each with a test. What is still uncovered across
+  every data command is the handler half — argument validation, the SDK call, and
+  error wrapping.
+- **`cmd/quote`'s two literal caps are a known inconsistency, not an oversight.**
+  `printIntradayTimelines` and `printQuoteDepths` cap at 10 rows by literal, so
+  `-limit` does not affect them, and they announce it differently: the timeline
+  prints `... N more point(s)` while the depth table truncates *silently*, which
+  claims a completeness it does not have. Both caps are pinned by tests, so they
+  cannot change without a test failing. Fixing them means either honouring
+  `-limit` or announcing the depth truncation, and both change output — so they
+  are recorded here as open questions rather than changed quietly. `cmd/quote` is
+  also exempt from the four `truncation_guard_test.go` structural checks, which
+  look for `if i >= limit` guards and find none here.
+- **`cmd/corporate` (31.9%), `cmd/futures` (31.7%), `cmd/reference` (41.3%) and
+  `cmd/options` (44.7%) had the same blocker and the same fix.** Their handlers
+  no longer render inline; each delegates to a tested `print*` renderer, which is
+  what moved them off 2-5% and 16.3%. The residual is handler plumbing, not
+  rendering.
 - **`-limit 0` now means "no rows" in every command, and that was a behaviour
   change.** Two sites — `opExpiration` and `printChains` — used to guard with
   `if o.Limit > 0 && i >= o.Limit`, so `-limit 0` printed *every* row there while
