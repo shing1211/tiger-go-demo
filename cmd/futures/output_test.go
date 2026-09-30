@@ -97,3 +97,40 @@ func TestPrintExchanges(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintFutureQuotes(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureQuotes([]sdkmodel.FutureQuote{
+				{ContractCode: "CL", LatestPrice: 100.5, Open: 99.0, High: 101.0, Low: 98.0, Volume: 12345},
+			}, 10)
+		})
+		if !strings.Contains(got, "CL") {
+			t.Errorf("output should contain CL; got:\n%s", got)
+		}
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("output should contain 100.5000; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printFutureQuotes(nil, 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("empty should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureQuotes([]sdkmodel.FutureQuote{
+				{ContractCode: "CL"}, {ContractCode: "ES"},
+			}, 1)
+		})
+		if !strings.Contains(got, "CL") {
+			t.Errorf("first should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "ES") {
+			t.Errorf("second should be absent; got:\n%s", got)
+		}
+	})
+}

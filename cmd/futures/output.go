@@ -170,6 +170,23 @@ func printContracts(contracts []sdkmodel.FutureContractInfo) {
 
 // ---- prices ----
 
+func printFutureQuotes(quotes []sdkmodel.FutureQuote, limit int) {
+	if len(quotes) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-14s %10s %10s %10s %12s %12s %10s %-20s\n",
+		"CONTRACT", "LAST", "BID", "ASK", "VOLUME", "OPEN_INT", "SETTLE", "TIME")
+	for i, q := range quotes {
+		if i >= limit {
+			break
+		}
+		fmt.Fprintf(out, "  %-14s %10.4f %10.4f %10.4f %12d %12d %10.4f %-20s\n",
+			q.ContractCode, q.LatestPrice, q.BidPrice, q.AskPrice, q.Volume,
+			q.OpenInterest, q.Settlement, rocli.MSFmt(q.LatestTime))
+	}
+}
+
 // opQuote fetches real-time futures quotes.
 func opQuote(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	codes := rocli.List(o.codes)
@@ -187,17 +204,7 @@ func opQuote(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get future real-time quote (%s): %w", strings.Join(codes, ","), err)
 	}
 	rocli.Section(out, "future real-time quotes")
-	fmt.Fprintf(out, "  %-14s %10s %10s %10s %12s %12s %10s %-20s\n",
-		"CONTRACT", "LAST", "BID", "ASK", "VOLUME", "OPEN_INT", "SETTLE", "TIME")
-	for i, q := range quotes {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(quotes), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-14s %10.4f %10.4f %10.4f %12d %12d %10.4f %-20s\n",
-			q.ContractCode, q.LatestPrice, q.BidPrice, q.AskPrice, q.Volume,
-			q.OpenInterest, q.Settlement, rocli.MSFmt(q.LatestTime))
-	}
+	printFutureQuotes(quotes, o.Limit)
 	return nil
 }
 
