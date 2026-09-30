@@ -1755,18 +1755,18 @@ Per-package statement coverage:
 | `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
 | `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
-| `cmd/options` | **10.1%** | Option-identifier parsing, and the `-op` vocabulary |
-| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **2-5%** | The `-op` vocabulary, plus four renderers split from their SDK calls. The rest is a named ceiling — see below. |
+| `cmd/options` | **16.3%** | Option-identifier parsing, the `-op` vocabulary, `printChains` and `printGreeks` |
+| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **2-5%** | The `-op` vocabulary, plus four renderers split from their SDK calls. The rest is a named ceiling — see below. `cmd/reference` also has `printBriefs` and `printBrokerSide` tested in this commit. |
 | `test` | no statements | Holds only tests: the read-only classification and the coverage enforcement point |
 
 ```console
 $ go test -cover ./...
 ok  	cmd/corporate	coverage: 3.4% of statements
 ok  	cmd/futures	coverage: 2.4% of statements
-ok  	cmd/options	coverage: 10.1% of statements
+ok  	cmd/options	coverage: 16.3% of statements
 ok  	cmd/push	coverage: 86.0% of statements
 ok  	cmd/quote	coverage: 21.2% of statements
-ok  	cmd/reference	coverage: 4.7% of statements
+ok  	cmd/reference	coverage: 8.5% of statements
 ok  	cmd/token	coverage: 62.9% of statements
 ok  	cmd/trade	coverage: 57.9% of statements
 ok  	internal/config	coverage: 81.4% of statements
@@ -1806,9 +1806,25 @@ does:
   renderers have been split that way and are tested (`printTradeRank` and
   `printTimelineHistory` in `reference`; `printContracts` in `futures`;
   `printWarrants` in `corporate`, which already took model values and needed only
-  a test). **The other 24 `reference` endpoints, and every endpoint in
+  a test). `cmd/reference` also has `printBriefs` and `printBrokerSide` tested.
+  **The other 24 `reference` endpoints, and every endpoint in
   `corporate` and `futures` beyond those two, are not tested.** The blocker is
   real; the ceiling is named here rather than left for a reader to discover.
+- **`cmd/options` is at 16.3%.** Nine of its ten `op*` functions render inline
+  and are untested, for the same structural reason. Two renderers
+  (`printChains` and `printGreeks`) are already split from their SDK calls and
+  are tested in this commit; the remaining eight are a named ceiling alongside
+  the others above. `opExpiration` is the other half of the `-limit 0` divergence
+  described below and cannot be pinned offline.
+- **The `-limit 0` flag behaves differently across the four data commands.** Two
+  sites — `opExpiration` (`cmd/options/output.go:45`) and `printChains`
+  (`cmd/options/output.go:132`) — guard with `if o.Limit > 0 && i >= o.Limit`,
+  so `-limit 0` prints every row and emits no truncation note. The remaining 48
+  sites use a bare `if i >= o.Limit`, so `-limit 0` prints zero rows silently:
+  the column headings print but no data follows. The divergence is documented
+  here rather than fixed, because the 48 bare sites are addressed by the split
+  phase. `printChains`' behaviour is tested and pinned as the guard's documented
+  meaning; `opExpiration` holds the SDK client and cannot be reached offline.
 - **`internal/sdkcoverage` at 61.7% is the number that matters least, and it is
   worth saying why.** It covers the walk, the AST match, the allow-list's shape
   and the reason derivation, each with a control test. The uncovered remainder is
