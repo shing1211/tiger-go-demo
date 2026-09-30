@@ -353,3 +353,100 @@ func TestPrintHistoryMain(t *testing.T) {
 		}
 	})
 }
+
+// Every capped renderer in this package must call rocli.Truncate when it stops
+// early, so the user sees how many rows the -limit hid. Asserting only that the
+// extra rows are absent would pass even if the notice were dropped, which is how
+// a truncation call went missing from all of them at once.
+func TestTruncateNoticeIsPrinted(t *testing.T) {
+	t.Run("exchanges", func(t *testing.T) {
+		got := capture(t, func() {
+			printExchanges([]sdkmodel.FutureExchange{{Code: "a"}, {Code: "b"}, {Code: "c"}}, 1)
+		})
+		if !strings.Contains(got, "2 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("quotes", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureQuotes([]sdkmodel.FutureQuote{{ContractCode: "a"}, {ContractCode: "b"}, {ContractCode: "c"}}, 2)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 2)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("klines outer loop", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureKlines([]sdkmodel.FutureKline{
+				{Items: []sdkmodel.FutureKlineItem{{}}},
+				{Items: []sdkmodel.FutureKlineItem{{}}},
+			}, "1d", 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("outer truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("klines inner loop", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureKlines([]sdkmodel.FutureKline{
+				{Items: []sdkmodel.FutureKlineItem{{}, {}, {}}},
+			}, "1d", 2)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 2)") {
+			t.Errorf("inner truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("kline page bars", func(t *testing.T) {
+		got := capture(t, func() {
+			printKlinePageBars([]sdkmodel.FutureKlineItem{{}, {}}, 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("depth", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureDepth(&sdkmodel.FutureDepth{
+				Bids: []sdkmodel.DepthLevel{{}, {}},
+				Asks: []sdkmodel.DepthLevel{{}, {}},
+			}, 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("ticks", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureTicks([]sdkmodel.FutureTradeTickItem{{}, {}}, 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("trading times", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradingTimes(&sdkmodel.FutureTradingTime{
+				TradingTimes: []sdkmodel.FutureTradingSegment{{}, {}},
+			}, 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+
+	t.Run("history main", func(t *testing.T) {
+		got := capture(t, func() {
+			printHistoryMain([]sdkmodel.FutureMainContractHistory{{}, {}}, 1)
+		})
+		if !strings.Contains(got, "1 more row(s) not shown (-limit 1)") {
+			t.Errorf("truncation notice missing; got:\n%s", got)
+		}
+	})
+}

@@ -31,6 +31,7 @@ func printExchanges(exchanges []sdkmodel.FutureExchange, limit int) {
 	fmt.Fprintf(out, "  %-12s %-36s %-12s\n", "CODE", "NAME", "ZONE")
 	for i, e := range exchanges {
 		if i >= limit {
+			rocli.Truncate(out, i, len(exchanges), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-12s %-36s %-12s\n", rocli.Dash(e.Code), rocli.Dash(e.Name), rocli.Dash(e.ZoneID))
@@ -179,6 +180,7 @@ func printFutureQuotes(quotes []sdkmodel.FutureQuote, limit int) {
 		"CONTRACT", "LAST", "BID", "ASK", "VOLUME", "OPEN_INT", "SETTLE", "TIME")
 	for i, q := range quotes {
 		if i >= limit {
+			rocli.Truncate(out, i, len(quotes), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-14s %10.4f %10.4f %10.4f %12d %12d %10.4f %-20s\n",
@@ -243,11 +245,16 @@ func printFutureKlines(klines []sdkmodel.FutureKline, period string, limit int) 
 		fmt.Fprintln(out, "  (no rows returned)")
 		return
 	}
-	for _, k := range klines {
+	for i, k := range klines {
+		if i >= limit {
+			rocli.Truncate(out, i, len(klines), limit)
+			break
+		}
 		fmt.Fprintf(out, "  series next_page_token=%s (%d bar(s))\n", rocli.Dash(k.NextPageToken), len(k.Items))
 		fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "OPEN_INT")
 		for j, it := range k.Items {
 			if j >= limit {
+				rocli.Truncate(out, j, len(k.Items), limit)
 				break
 			}
 			fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d %12d\n",
@@ -295,6 +302,7 @@ func printKlinePageBars(bars []sdkmodel.FutureKlineItem, limit int) {
 	fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "OPEN_INT")
 	for i, b := range bars {
 		if i >= limit {
+			rocli.Truncate(out, i, len(bars), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d %12d\n",
@@ -316,6 +324,7 @@ func printFutureDepth(depth *sdkmodel.FutureDepth, limit int) {
 	fmt.Fprintf(out, "  %-10s %12s   %10s %12s\n", "BID", "SIZE", "ASK", "SIZE")
 	for i := 0; i < n; i++ {
 		if i >= limit {
+			rocli.Truncate(out, i, n, limit)
 			break
 		}
 		bp, bs, ap, as := "-", "-", "-", "-"
@@ -383,6 +392,7 @@ func printFutureTicks(ticks []sdkmodel.FutureTradeTickItem, limit int) {
 	fmt.Fprintf(out, "  %-6s %-22s %-6s %10s %10s\n", "INDEX", "TIME", "DIR", "PRICE", "VOLUME")
 	for i, t := range ticks {
 		if i >= limit {
+			rocli.Truncate(out, i, len(ticks), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-6d %-22s %-6s %10.4f %10d\n",
@@ -423,6 +433,7 @@ func printTradingTimes(tt *sdkmodel.FutureTradingTime, limit int) {
 	}
 	for i, seg := range tt.TradingTimes {
 		if i >= limit {
+			rocli.Truncate(out, i, len(tt.TradingTimes), limit)
 			break
 		}
 		fmt.Fprintf(out, "    %-24s %s -> %s\n",
@@ -462,6 +473,7 @@ func printHistoryMain(hists []sdkmodel.FutureMainContractHistory, limit int) {
 	}
 	for i, h := range hists {
 		if i >= limit {
+			rocli.Truncate(out, i, len(hists), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-14s %-14s %-12s %-12s\n",
