@@ -92,6 +92,31 @@ func opSymbolNames(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 	return nil
 }
 
+// printStockDetails renders per-symbol descriptive and valuation fields.
+func printStockDetails(details []sdkmodel.StockDetail, limit int) {
+	if len(details) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for i, d := range details {
+		if i >= limit {
+			rocli.Truncate(out, i, len(details), limit)
+			break
+		}
+		name := d.NameEN
+		if name == "" {
+			name = d.NameCN
+		}
+		fmt.Fprintf(out, "  %-12s %-34s %-8s %-8s %-8s %-20s\n",
+			rocli.Dash(d.Symbol), rocli.Dash(name), rocli.Dash(d.Market),
+			rocli.Dash(d.Currency), rocli.Dash(d.SecType), rocli.Dash(d.Industry))
+		fmt.Fprintf(out, "    sector=%-24s exchange=%-10s listed=%s\n",
+			rocli.Dash(d.Sector), rocli.Dash(d.Exchange), rocli.MSFmt(d.ListingDate))
+		fmt.Fprintf(out, "    market_cap=%.2f float_cap=%.2f shares=%.0f eps_ttm=%.4f pe_ttm=%.4f\n",
+			d.MarketCap, d.CirculationCap, d.TotalShares, d.EpsTtm, d.PeRatioTtm)
+	}
+}
+
 // opStockDetails returns per-symbol descriptive and valuation fields.
 func opStockDetails(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
@@ -110,23 +135,7 @@ func opStockDetails(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		return fmt.Errorf("get stock details (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "stock details")
-	for i, d := range details {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(details), o.Limit)
-			break
-		}
-		name := d.NameEN
-		if name == "" {
-			name = d.NameCN
-		}
-		fmt.Fprintf(out, "  %-12s %-34s %-8s %-8s %-8s %-20s\n",
-			rocli.Dash(d.Symbol), rocli.Dash(name), rocli.Dash(d.Market),
-			rocli.Dash(d.Currency), rocli.Dash(d.SecType), rocli.Dash(d.Industry))
-		fmt.Fprintf(out, "    sector=%-24s exchange=%-10s listed=%s\n",
-			rocli.Dash(d.Sector), rocli.Dash(d.Exchange), rocli.MSFmt(d.ListingDate))
-		fmt.Fprintf(out, "    market_cap=%.2f float_cap=%.2f shares=%.0f eps_ttm=%.4f pe_ttm=%.4f\n",
-			d.MarketCap, d.CirculationCap, d.TotalShares, d.EpsTtm, d.PeRatioTtm)
-	}
+	printStockDetails(details, o.Limit)
 	return nil
 }
 
