@@ -1105,3 +1105,42 @@ func TestPrintQuotePermissions(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintOvernightQuotes(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printOvernightQuotes([]sdkmodel.QuoteOvernight{
+				{Symbol: "AAPL", LatestPrice: 187.25, BidPrice: 187.20, AskPrice: 187.30, Volume: 41000, Timestamp: 1767225600000},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "187.2500", "187.2000", "187.3000", "41000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if !strings.Contains(got, rocli.MSFmt(1767225600000)) {
+			t.Errorf("output should contain the rendered quote time, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printOvernightQuotes(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty quote list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printOvernightQuotes([]sdkmodel.QuoteOvernight{
+				{Symbol: "AAA", LatestPrice: 111.11}, {Symbol: "BBB", LatestPrice: 222.22},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}

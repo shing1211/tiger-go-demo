@@ -1036,6 +1036,23 @@ func opTradeRank(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 	return nil
 }
 
+// printOvernightQuotes renders the overnight-session book for each symbol.
+func printOvernightQuotes(quotes []sdkmodel.QuoteOvernight, limit int) {
+	if len(quotes) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %10s %10s %10s %12s %-20s\n", "SYMBOL", "LAST", "BID", "ASK", "VOLUME", "TIME")
+	for i, q := range quotes {
+		if i >= limit {
+			rocli.Truncate(out, i, len(quotes), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %10.4f %10.4f %10.4f %12d %-20s\n",
+			rocli.Dash(q.Symbol), q.LatestPrice, q.BidPrice, q.AskPrice, q.Volume, rocli.MSFmt(q.Timestamp))
+	}
+}
+
 // opOvernight returns overnight-session quotes.
 func opOvernight(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
@@ -1050,15 +1067,7 @@ func opOvernight(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 		return fmt.Errorf("get overnight quotes (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "overnight quotes")
-	fmt.Fprintf(out, "  %-12s %10s %10s %10s %12s %-20s\n", "SYMBOL", "LAST", "BID", "ASK", "VOLUME", "TIME")
-	for i, q := range quotes {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(quotes), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %10.4f %10.4f %10.4f %12d %-20s\n",
-			rocli.Dash(q.Symbol), q.LatestPrice, q.BidPrice, q.AskPrice, q.Volume, rocli.MSFmt(q.Timestamp))
-	}
+	printOvernightQuotes(quotes, o.Limit)
 	return nil
 }
 
