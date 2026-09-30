@@ -391,6 +391,60 @@ func TestPrintRealTimeBriefs(t *testing.T) {
 	})
 }
 
+func TestPrintRealTimeKlines(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printRealTimeKlines(w, []sdkmodel.Kline{
+				{
+					Symbol:        "AAPL",
+					NextPageToken: "",
+					Items: []sdkmodel.KlineItem{
+						{Time: 1767225600000, Open: 185.0, High: 188.5, Low: 184.25, Close: 187.25, Volume: 1000},
+						{Time: 1767312000000, Open: 187.25, High: 190.0, Low: 186.0, Close: 189.5, Volume: 2000},
+					},
+				},
+			}, "day")
+		})
+		// The requested period is the server's paging parameter, not a property
+		// of the response, so the renderer takes it and puts it in the heading.
+		for _, want := range []string{
+			"\n== k-lines (period=day) ==",
+			"AAPL (next_page_token=-)", // an omitted token is a dash, not a blank
+			"TIME", "CLOSE",
+			fmt.Sprintf("  %-22s %10.4f %10.4f %10.4f %10.4f %12d",
+				msToTime(1767225600000), 185.0, 188.5, 184.25, 187.25, 1000),
+			fmt.Sprintf("  %-22s %10.4f %10.4f %10.4f %10.4f %12d",
+				msToTime(1767312000000), 187.25, 190.0, 186.0, 189.5, 2000),
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("a present page token prints instead of a dash", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printRealTimeKlines(w, []sdkmodel.Kline{{Symbol: "AAPL", NextPageToken: "tok-2"}}, "week")
+		})
+		if !strings.Contains(got, "AAPL (next_page_token=tok-2)") {
+			t.Errorf("a page token should print verbatim, got:\n%s", got)
+		}
+		if !strings.Contains(got, "\n== k-lines (period=week) ==") {
+			t.Errorf("the heading should carry the requested period, got:\n%s", got)
+		}
+	})
+
+	t.Run("no symbols prints the heading and nothing else", func(t *testing.T) {
+		// The column header sits inside the per-symbol loop, so an empty
+		// response prints the heading alone. There is no empty-result notice
+		// here either; adding one would change the output.
+		got := capture(t, func(w io.Writer) { printRealTimeKlines(w, nil, "day") })
+		if got != "\n== k-lines (period=day) ==\n" {
+			t.Errorf("an empty response should print the heading only, got:\n%q", got)
+		}
+	})
+}
+
 // TestSplitSymbols covers the -symbols parsing the default path uses, including
 // the case that must not reach Tiger: an empty flag.
 func TestSplitSymbols(t *testing.T) {

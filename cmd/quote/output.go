@@ -156,6 +156,22 @@ func printBriefs(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 	return nil
 }
 
+// printRealTimeKlines renders one block of bars per symbol. It is separated from
+// the call below so the rendering can be tested without a credentialed round
+// trip. The requested period is a paging parameter the server echo is not
+// guaranteed to carry, so it is passed in and printed in the heading.
+func printRealTimeKlines(w io.Writer, klines []sdkmodel.Kline, period string) {
+	fmt.Fprintf(w, "\n== k-lines (period=%s) ==\n", period)
+	for _, k := range klines {
+		fmt.Fprintf(w, "  %s (next_page_token=%s)\n", k.Symbol, orDash(k.NextPageToken))
+		fmt.Fprintf(w, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
+		for _, it := range k.Items {
+			fmt.Fprintf(w, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
+				msToTime(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
+		}
+	}
+}
+
 func printKlines(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, period string, limit int, w io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -172,15 +188,7 @@ func printKlines(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 	if err != nil {
 		return fmt.Errorf("get kline (period=%s): %w", period, err)
 	}
-	fmt.Fprintf(w, "\n== k-lines (period=%s) ==\n", period)
-	for _, k := range klines {
-		fmt.Fprintf(w, "  %s (next_page_token=%s)\n", k.Symbol, orDash(k.NextPageToken))
-		fmt.Fprintf(w, "  %-22s %10s %10s %10s %10s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME")
-		for _, it := range k.Items {
-			fmt.Fprintf(w, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d\n",
-				msToTime(it.Time), it.Open, it.High, it.Low, it.Close, it.Volume)
-		}
-	}
+	printRealTimeKlines(w, klines, period)
 	return nil
 }
 
