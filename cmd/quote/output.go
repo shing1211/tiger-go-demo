@@ -131,6 +131,19 @@ func printMarketState(ctx context.Context, qc *sdkquote.QuoteClient, market stri
 	return nil
 }
 
+// printRealTimeBriefs renders the real-time quote table. It is separated from
+// the call below so the rendering can be tested without a credentialed round
+// trip. There is no empty-result branch, by design: the heading and the column
+// header always print, so an empty response reads as a table with no rows.
+func printRealTimeBriefs(w io.Writer, briefs []sdkmodel.Brief) {
+	fmt.Fprintf(w, "\n== real-time quotes ==\n")
+	fmt.Fprintf(w, "  %-10s %10s %10s %10s %12s %10s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")
+	for _, b := range briefs {
+		fmt.Fprintf(w, "  %-10s %10.4f %10.4f %9.2f%% %12d %10s\n",
+			b.Symbol, b.LatestPrice, b.Change, b.ChangeRate, b.Volume, msToTime(b.LatestTime))
+	}
+}
+
 func printBriefs(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, w io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -139,12 +152,7 @@ func printBriefs(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 	if err != nil {
 		return fmt.Errorf("get real-time quote: %w", err)
 	}
-	fmt.Fprintf(w, "\n== real-time quotes ==\n")
-	fmt.Fprintf(w, "  %-10s %10s %10s %10s %12s %10s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")
-	for _, b := range briefs {
-		fmt.Fprintf(w, "  %-10s %10.4f %10.4f %9.2f%% %12d %10s\n",
-			b.Symbol, b.LatestPrice, b.Change, b.ChangeRate, b.Volume, msToTime(b.LatestTime))
-	}
+	printRealTimeBriefs(w, briefs)
 	return nil
 }
 

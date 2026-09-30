@@ -352,6 +352,45 @@ func TestPrintMarketStates(t *testing.T) {
 	})
 }
 
+// TestPrintRealTimeBriefs has no empty-result branch, and that is deliberate:
+// the heading and the column header print whether or not the server returned a
+// brief, so the absence is visible as a table with no rows rather than as a
+// sentence the reader has to interpret. The other 60 renderers in this project
+// print "(no rows returned)" here; adding that would change the output.
+func TestPrintRealTimeBriefs(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printRealTimeBriefs(w, []sdkmodel.Brief{
+				{Symbol: "AAPL", LatestPrice: 187.25, Change: 1.5, ChangeRate: 0.81, Volume: 1234567, LatestTime: 1767225600000},
+			})
+		})
+		for _, want := range []string{
+			"== real-time quotes ==",
+			"SYMBOL", "LAST", "CHG%",
+			fmt.Sprintf("  %-10s %10.4f %10.4f %9.2f%% %12d %10s",
+				"AAPL", 187.25, 1.5, 0.81, 1234567, msToTime(1767225600000)),
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("an empty response prints the heading and no rows", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) { printRealTimeBriefs(w, nil) })
+		for _, want := range []string{"== real-time quotes ==", "SYMBOL"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		for _, unwanted := range []string{"no rows returned", "no data returned"} {
+			if strings.Contains(got, unwanted) {
+				t.Errorf("this renderer has no empty-result notice, so output should not contain %q; got:\n%s", unwanted, got)
+			}
+		}
+	})
+}
+
 // TestSplitSymbols covers the -symbols parsing the default path uses, including
 // the case that must not reach Tiger: an empty flag.
 func TestSplitSymbols(t *testing.T) {
