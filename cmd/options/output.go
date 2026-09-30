@@ -102,7 +102,7 @@ func opChain(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 			return fmt.Errorf("get option chain with filters (%s %s): %w", underlying, expiry, err)
 		}
 	}
-	printChains(chains, o)
+	printChains(chains, o.Limit, o.greeks)
 	return nil
 }
 
@@ -132,7 +132,7 @@ func chainRequest(underlying, expiry string, o options) (sdkmodel.OptionChainReq
 	return req, nil
 }
 
-func printChains(chains []sdkmodel.OptionChain, o options) {
+func printChains(chains []sdkmodel.OptionChain, limit int, greeks bool) {
 	if len(chains) == 0 {
 		fmt.Fprintln(out, "  (no rows returned)")
 		return
@@ -141,8 +141,8 @@ func printChains(chains []sdkmodel.OptionChain, o options) {
 		fmt.Fprintf(out, "  %s expiry=%s  %d strike row(s)\n", c.Symbol, rocli.MSFmt(c.Expiry), len(c.Items))
 		fmt.Fprintf(out, "  %-10s %-10s %-10s | %-10s %-10s %-10s\n", "PUT", "BID", "ASK", "CALL", "BID", "ASK")
 		for i, row := range c.Items {
-			if o.Limit > 0 && i >= o.Limit {
-				rocli.Truncate(out, i, len(c.Items), o.Limit)
+			if i >= limit {
+				rocli.Truncate(out, i, len(c.Items), limit)
 				break
 			}
 			putBid, putAsk, putStrike, putOI := "-", "-", "-", int64(0)
@@ -155,10 +155,10 @@ func printChains(chains []sdkmodel.OptionChain, o options) {
 			}
 			fmt.Fprintf(out, "  %-10s %-10s %-10s | %-10s %-10s %-10s  put_oi=%-10d call_oi=%d\n",
 				putStrike, putBid, putAsk, callStrike, callBid, callAsk, putOI, callOI)
-			if o.greeks && row.Call != nil {
+			if greeks && row.Call != nil {
 				printGreeks("call", *row.Call)
 			}
-			if o.greeks && row.Put != nil {
+			if greeks && row.Put != nil {
 				printGreeks("put ", *row.Put)
 			}
 		}

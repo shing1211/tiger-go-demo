@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	sdkmodel "github.com/tigerfintech/openapi-go-sdk/model"
-
-	"github.com/shing1211/tiger-go-demo/internal/rocli"
 )
 
 func capture(t *testing.T, fn func()) string {
@@ -38,7 +36,7 @@ func TestPrintChains(t *testing.T) {
 						},
 					},
 				},
-			}, options{Common: rocli.Common{Limit: 20}})
+			}, 20, false)
 		})
 		for _, want := range []string{"AAPL", "150.0000", "5.1000", "8.3000", "5.2000", "8.5000", "1200", "980"} {
 			if !strings.Contains(got, want) {
@@ -57,7 +55,7 @@ func TestPrintChains(t *testing.T) {
 						{Put: nil, Call: &sdkmodel.OptionLeg{Identifier: "TSLA 250117C00200000", Strike: "200.0000", BidPrice: 2.00, AskPrice: 2.10, OpenInterest: 500}},
 					},
 				},
-			}, options{Common: rocli.Common{Limit: 20}})
+			}, 20, false)
 		})
 		if !strings.Contains(got, "put_oi=0") {
 			t.Errorf("an absent put should print put_oi=0, got:\n%s", got)
@@ -82,7 +80,7 @@ func TestPrintChains(t *testing.T) {
 						{Put: &sdkmodel.OptionLeg{Identifier: "SPY P3", Strike: "3", BidPrice: 3, AskPrice: 3, OpenInterest: 3}, Call: &sdkmodel.OptionLeg{Identifier: "SPY C3", Strike: "3", BidPrice: 3, AskPrice: 3, OpenInterest: 3}},
 					},
 				},
-			}, options{Common: rocli.Common{Limit: 2}})
+			}, 2, false)
 		})
 		if strings.Contains(got, "SPY P3") || strings.Contains(got, "SPY C3") {
 			t.Errorf("a row past the limit should not print; got:\n%s", got)
@@ -92,7 +90,12 @@ func TestPrintChains(t *testing.T) {
 		}
 	})
 
-	t.Run("-limit 0 drops nothing here", func(t *testing.T) {
+	// -limit 0 used to print every row here, because this renderer was the last
+	// one still using the guarded `o.Limit > 0 && i >= o.Limit` form. It now uses
+	// the bare `i >= limit` form that every other renderer uses, so 0 means "no
+	// rows", consistent with the rest of the CLI. This is a deliberate
+	// behaviour change, not an accident; see the ledger's behaviour decisions.
+	t.Run("-limit 0 prints no rows, as everywhere else", func(t *testing.T) {
 		got := capture(t, func() {
 			printChains([]sdkmodel.OptionChain{
 				{
@@ -103,27 +106,27 @@ func TestPrintChains(t *testing.T) {
 						{Put: &sdkmodel.OptionLeg{Identifier: "NVDA P2", Strike: "2", BidPrice: 2, AskPrice: 2, OpenInterest: 2}, Call: &sdkmodel.OptionLeg{Identifier: "NVDA C2", Strike: "2", BidPrice: 2, AskPrice: 2, OpenInterest: 2}},
 					},
 				},
-			}, options{Common: rocli.Common{Limit: 0}})
+			}, 0, false)
 		})
 		if !strings.Contains(got, "2 strike row(s)") {
-			t.Errorf("all rows should print when limit is 0; got:\n%s", got)
+			t.Errorf("the chain summary should still report the true row count; got:\n%s", got)
 		}
-		if strings.Contains(got, "more row(s) not shown") {
-			t.Errorf("limit 0 should not emit a truncation note; got:\n%s", got)
+		if strings.Contains(got, "NVDA P1") || strings.Contains(got, "NVDA C1") {
+			t.Errorf("no strike row should print when limit is 0; got:\n%s", got)
 		}
 	})
 
 	t.Run("greeks print only when asked", func(t *testing.T) {
 		leg := sdkmodel.OptionLeg{Identifier: "AAPL 250117C00150000", Strike: "150.0000", BidPrice: 8.30, AskPrice: 8.50, OpenInterest: 980, Delta: 0.5123, Gamma: 0.0314, Theta: -0.0401, Vega: 0.1832, Rho: 0.0210, ImpliedVol: 0.2840, MarkPrice: 8.40}
 		gotWithout := capture(t, func() {
-			printChains([]sdkmodel.OptionChain{{Symbol: "AAPL", Expiry: 1767225600000, Items: []sdkmodel.OptionChainRow{{Call: &leg}}}}, options{Common: rocli.Common{Limit: 20}, greeks: false})
+			printChains([]sdkmodel.OptionChain{{Symbol: "AAPL", Expiry: 1767225600000, Items: []sdkmodel.OptionChainRow{{Call: &leg}}}}, 20, false)
 		})
 		if strings.Contains(gotWithout, "delta=") {
 			t.Errorf("greeks should not print when greeks flag is false; got:\n%s", gotWithout)
 		}
 
 		gotWith := capture(t, func() {
-			printChains([]sdkmodel.OptionChain{{Symbol: "AAPL", Expiry: 1767225600000, Items: []sdkmodel.OptionChainRow{{Call: &leg}}}}, options{Common: rocli.Common{Limit: 20}, greeks: true})
+			printChains([]sdkmodel.OptionChain{{Symbol: "AAPL", Expiry: 1767225600000, Items: []sdkmodel.OptionChainRow{{Call: &leg}}}}, 20, true)
 		})
 		if !strings.Contains(gotWith, "delta=") {
 			t.Errorf("greeks should print when greeks flag is true; got:\n%s", gotWith)
@@ -132,7 +135,7 @@ func TestPrintChains(t *testing.T) {
 
 	t.Run("empty says so", func(t *testing.T) {
 		got := capture(t, func() {
-			printChains(nil, options{Common: rocli.Common{Limit: 20}})
+			printChains(nil, 20, false)
 		})
 		if !strings.Contains(got, "no rows") {
 			t.Errorf("an empty chain list should say so; got:\n%s", got)
