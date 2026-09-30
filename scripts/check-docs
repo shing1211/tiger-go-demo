@@ -1,0 +1,179 @@
+#!/bin/sh
+# The README publishes numbers. This checks them against a real run.
+#
+# Three figures in README.md are claims that go stale the moment someone adds a
+# test: the total case count, the top-level test-function count, and the
+# per-package coverage table. All three had already drifted in this repository
+# more than once, each time because a commit changed the code and nobody
+# re-measured the prose. This step is the thing that would have caught it.
+#
+# It re-runs the suite once without -race, because the figures depend only on
+# which tests exist and which lines they touch, not on the race detector, and
+# skipping -race keeps the extra run cheap. The trade is that the gate now
+# builds the packages twice; that is the price of checking prose.
+#
+# test/coverage_test.go pins the SDK-method figure (140/159) the same way, by
+# scanning source. This one cannot: a case count and a coverage percentage are
+# only knowable by running the tests, and a test that runs the suite from inside
+# the suite recurses into itself.
+#
+# On any mismatch it exits non-zero and prints the offending line, because a
+# check that only says "failed" is a check nobody trusts.
+
+set -eu
+
+GO="${GO:-go}"
+README="${README:-README.md}"
+MODULE="github.com/shing1211/tiger-go-demo"
+
+if [ ! -f "$README" ]; then
+	echo "check-docs: $README not found; run from the repository root"
+	exit 1
+fi
+
+out=$(mktemp)
+mfile=$(mktemp)
+dfile=$(mktemp)
+trap 'rm -f "$out" "$mfile" "$dfile"' EXIT
+
+echo "check-docs: measuring (one pass, no -race)"
+"$GO" test -count=1 -v -cover ./... >"$out" 2>&1 || {
+	echo "check-docs: the suite failed, so the README cannot be checked."
+	echo "check-docs: run scripts/verify first and fix the failure."
+	tail -n 30 "$out"
+	exit 1
+}
+
+status=0
+
+# --- case counts -------------------------------------------------------------
+# These are the two patterns README.md documents verbatim, so this checks the
+# numbers the documented commands actually produce rather than private variants.
+# Note the asymmetry they encode: Go indents a subtest's `--- PASS` but not its
+# `=== RUN`, so counting both would count every subtest twice.
+cases=$(grep -cE '^=== RUN' "$out" || true)
+tops=$(grep -cE '^--- PASS:' "$out" || true)
+
+# README states the case count as prose, and also as console-transcript output
+# directly under it. Checking the prose alone would let the transcript drift
+# independently, which is exactly how the two disagreed once already.
+want_cases=$(grep -oE 'is \*\*[0-9]+\*\*, across' "$README" | grep -oE '[0-9]+' | head -n 1 || true)
+if [ -z "$want_cases" ]; then
+	echo "check-docs: could not find the case count in $README"
+	status=1
+elif [ "$want_cases" != "$cases" ]; then
+	echo "check-docs: $README says $want_cases test cases; the run has $cases."
+	echo "check-docs: update the prose and the console transcript in the Test suite section."
+	status=1
+fi
+
+if ! grep -qE "^$cases\$" "$README"; then
+	echo "check-docs: the console transcript in the Test suite section does not show $cases"
+	echo "check-docs: as the case count, so it disagrees with the prose or the run."
+	status=1
+fi
+
+want_tops=$(grep -oE '[0-9]+ top-level test functions' "$README" | grep -oE '[0-9]+' | head -n 1 || true)
+if [ -z "$want_tops" ]; then
+	echo "check-docs: could not find the top-level test-function count in $README"
+	status=1
+elif [ "$want_tops" != "$tops" ]; then
+	echo "check-docs: $README says $want_tops top-level test functions; the run has $tops."
+	status=1
+fi
+
+# Every documented "run this, get this" pair in the Test suite console block is
+# re-evaluated against the run above. The prose checks above can each pass while
+# the transcript beside them disagrees, and that is not a hypothetical: the
+# transcript once claimed a count its own command did not print.
+#
+# A documented line looks like:
+#   $ go test -count=1 -v ./... 2>&1 | grep -cE '^=== RUN'
+#   746
+# Only the grep pattern is replayed, against the output already captured, since
+# re-running the command would just re-run the suite. Coverage instrumentation
+# adds no RUN or PASS lines, so the figures are the same with or without -cover.
+awk '
+	/^\$ .*grep -c/ {
+		s = $0
+		sub(/.*grep -c/, "", s)
+		sub(/^E?[ ]?'"'"'/, "", s)
+		sub(/'"'"'$/, "", s)
+		pattern = s
+		next
+	}
+	pattern != "" && /^[0-9]+$/ {
+		# "|" separates, because the pattern can contain spaces and a
+		# whitespace-separated read would split "^=== RUN" in half.
+		print pattern "|" $0
+		pattern = ""
+	}
+' "$README" >"$dfile"
+
+if [ ! -s "$dfile" ]; then
+	echo "check-docs: found no documented 'grep -c' command in $README to verify."
+	echo "check-docs: expected the Test suite section to show how the counts were obtained."
+	status=1
+fi
+
+while IFS='|' read -r pattern claimed; do
+	[ -n "$pattern" ] || continue
+	actual=$(grep -cE "$pattern" "$out" || true)
+	if [ "$actual" != "$claimed" ]; then
+		echo "check-docs: the transcript shows $claimed for 'grep -cE $pattern', which counts $actual."
+		echo "check-docs: run the command yourself and paste what it actually prints."
+		status=1
+	fi
+done <"$dfile"
+
+# --- per-package coverage table ----------------------------------------------
+# Measured lines look like:
+#   ok  <module>/cmd/quote  0.7s  coverage: 47.2% of statements
+# The test package reports the SDK figure instead of a percentage, so only the
+# "N% of statements" form counts as coverage; anything else is recorded as a
+# package with no statements of its own, which the table is allowed to list.
+measured=$(sed -n "s#^ok[[:space:]]\+$MODULE/\([^[:space:]]*\)[[:space:]].*coverage: \([0-9.]*\)% of statements#\1 \2#p" "$out" | sort)
+nostmt=$(sed -n "s#^ok[[:space:]]\+$MODULE/\([^[:space:]]*\)[[:space:]].*coverage: .*#\1#p" "$out" \
+	| grep -vxF "$(printf '%s\n' "$measured" | cut -d' ' -f1)" | sort)
+
+if [ -z "$measured" ] && [ -z "$nostmt" ]; then
+	echo "check-docs: parsed no packages from the run; the output format moved."
+	status=1
+fi
+
+printf '%s\n' "$measured" >"$out.measured"
+# Redirect from a file rather than a pipe: a `while` in a pipeline runs in a
+# subshell, so the status it sets would be discarded when the pipeline ends.
+# while-read, not `for row in $measured`: the latter word-splits on the space
+# between the package and its figure and reports a figure of "" for every row.
+while read -r pkg pct; do
+	[ -n "$pkg" ] || continue
+	# The README cell is bold, and internal/tigersdk carries a leading tilde to
+	# signal a figure that is not exact. Strip both before comparing.
+	cell=$(sed -n "s#^| \`$pkg\` | \*\*~*\([0-9.]*\)%\*\*.*#\1#p" "$README" | head -n 1 || true)
+	if [ -z "$cell" ]; then
+		echo "check-docs: $pkg has no row in the $README coverage table (measured $pct%)."
+		echo "check-docs: add it, keeping the table sorted by coverage."
+		status=1
+	elif [ "$cell" != "$pct" ]; then
+		echo "check-docs: $README says $pkg is $cell%, the run measures $pct%."
+		status=1
+	fi
+done <"$out.measured"
+
+# A package that gained coverage and left the table behind would not be caught
+# by the loop above, which only walks what the run measured.
+table_pkgs=$(sed -n 's#^| `\([^`]*\)` | \(no statements\|\*\*~*[0-9.]*%\*\*\).*#\1#p' "$README" | sort)
+known=$(printf '%s\n%s\n' "$measured" "$nostmt" | cut -d' ' -f1 | grep -v '^$' | sort)
+for pkg in $table_pkgs; do
+	if ! printf '%s\n' "$known" | grep -qx "$pkg"; then
+		echo "check-docs: $README lists $pkg in the coverage table but the run does not report it."
+		status=1
+	fi
+done
+
+if [ "$status" -eq 0 ]; then
+	echo "check-docs: README figures match the run ($cases cases, $tops top-level)."
+fi
+
+exit "$status"

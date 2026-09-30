@@ -101,8 +101,12 @@ tidy: ## Tidy go.mod / go.sum
 coverage-check: ## Fail unless the uncovered SDK methods are exactly the allow-list
 	@$(GO) test -count=1 -run TestSDKCoverage -v ./test/
 
+.PHONY: docs-check
+docs-check: ## Fail unless the README's test counts and coverage table match a real run
+	@GO=$(GO) ./scripts/check-docs
+
 .PHONY: verify
-verify: fmt-check vet test build coverage-check ## Everything CI should run
+verify: fmt-check vet test build coverage-check docs-check ## Everything CI should run
 
 .PHONY: demo-dry-run
 demo-dry-run: ## Prove the safety gate refuses a real order (no credentials needed beyond dummy)

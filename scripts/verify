@@ -11,11 +11,14 @@
 #   3. go test      the suite
 #   4. coverage     the SDK coverage assertion (its own package, listed
 #                   separately so its failure is unambiguous)
+#   5. docs         that README's published figures match the run (its own
+#                   script, for the same reason)
 #
 # The first failure exits non-zero. Every step must pass.
 set -eu
 
 GO="${GO:-go}"
+SCRIPTS=$(dirname "$0")
 
 # gofmt is checked with -l rather than run, because a gate that rewrites the
 # tree cannot be a gate: a contributor running it to find out whether their
@@ -45,5 +48,15 @@ else
 fi
 
 "$GO" test -count=1 -run TestSDKCoverage ./test/
+
+# The README publishes a test-case count and a per-package coverage table. Both
+# went stale more than once in this repository, each time because code changed
+# and the prose was not re-measured, so the figures are checked rather than
+# trusted. This runs the suite a second time without -race, which roughly adds
+# the suite's own runtime to the gate; that is the cost of checking prose, and
+# the alternative is prose that is quietly wrong.
+#
+# GO is passed through so an overridden toolchain is used here too.
+GO="$GO" "$SCRIPTS/check-docs"
 
 echo "verify: ok"

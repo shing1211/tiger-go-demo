@@ -57,7 +57,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (14 packages, 730 cases — see [Test suite](#test-suite)), all eight
+  tests pass (14 packages, 746 cases — see [Test suite](#test-suite)), all eight
   binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -1642,15 +1642,26 @@ precisely because it cannot place anything.
 
 ## Development
 
-**The gate is `scripts/verify`, and it is four commands.** The `make` targets are
-a convenience layer over the same four, not the gate itself — so the checks run on
+**The gate is `scripts/verify`, and it is five steps.** The `make` targets are
+a convenience layer over the same five, not the gate itself — so the checks run on
 a machine with no GNU make installed, which is the point. A gate that only runs on
 one contributor's machine is not a gate.
 
 ```bash
-scripts/verify                 # the gate: gofmt, vet, test, coverage-check
+scripts/verify                 # the gate: gofmt, vet, test, coverage-check, docs-check
 TIGER_NO_RACE=1 scripts/verify # the same, without the race detector
 ```
+
+The fifth step, `scripts/check-docs`, is the one that keeps this section honest.
+The test-case count, the top-level test-function count and the per-package
+coverage table above are all claims about a run, and all three had gone stale
+more than once — each time because code changed and the prose was not
+re-measured. The script re-runs the suite once and fails if any published figure
+disagrees, including a command in a console transcript whose own output no longer
+matches. `test/coverage_test.go` pins the SDK-method figure the same way by
+scanning source; this one cannot, because a case count and a coverage percentage
+are only knowable by running the tests, and a test that runs the suite from
+inside the suite recurses into itself.
 
 **And it now runs on CI too**, which is what the line above was asking for.
 [`.github/workflows/verify.yml`](.github/workflows/verify.yml) calls
@@ -1664,13 +1675,14 @@ differ in the ways that have actually bitten this project — CRLF against `gofm
 (what the `.gitattributes` `eol=lf` pin is for), and whether a C compiler is
 present for `-race`.
 
-Or the four commands directly, which is what the script runs:
+Or the commands directly, which is what the script runs:
 
 ```bash
 gofmt -l .                                    # must print nothing
 go vet ./...
 go test -count=1 ./...
 go test -count=1 -run TestSDKCoverage ./test/
+./scripts/check-docs                           # re-runs the suite to check the figures above
 ```
 
 Two environment details, both learned the hard way on Windows:
@@ -1699,7 +1711,7 @@ Two environment details, both learned the hard way on Windows:
 
 ```bash
 make help          # list targets
-make verify        # fmt-check + vet + test -race + build + coverage-check
+make verify        # fmt-check + vet + test -race + build + coverage-check + docs-check
 make build         # binaries into ./bin (all eight)
 make test          # unit tests with the race detector
 make test-norace   # the same, without it
@@ -1752,16 +1764,25 @@ ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 
 ### Test suite
 
-`go test ./...` puts **14** packages behind tests and passes. The rough case
-count — every `=== RUN` and every subtest `--- PASS` line — is **730**, across
-287 top-level test functions:
+`go test ./...` puts **14** packages behind tests and passes. The case count —
+one `=== RUN` line per case, which is how `go test -v` reports every test and
+every subtest — is **746**, across 289 top-level test functions:
 
 ```console
-$ go test -count=1 -v ./... 2>&1 | grep -cE '^(=== RUN|    --- PASS)'
-730
+$ go test -count=1 -v ./... 2>&1 | grep -cE '^=== RUN'
+746
+$ go test -count=1 -v ./... 2>&1 | grep -cE '^--- PASS:'
+289
 $ go test -count=1 ./... | grep -c '^ok'
 14
 ```
+
+Count `=== RUN` lines rather than `--- PASS` lines for the case total. Go
+indents a subtest's `--- PASS` but **not** its `=== RUN`, so a pattern matching
+both counts every case once from its `RUN` and every subtest a second time from
+its `PASS` — which is how an earlier version of this section came to claim 746
+while its own command printed 1203. `scripts/check-docs` now runs the command
+above and fails if this paragraph disagrees with it.
 
 Per-package statement coverage:
 
@@ -1776,7 +1797,7 @@ Per-package statement coverage:
 | `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
 | `cmd/options` | **48.8%** | Every renderer, plus the option-identifier parsing, the expiry conversion and the `-op chain` request validation. The residual is handler plumbing, which needs a live account |
-| `cmd/quote` | **43.4%** | Every renderer, including entitlement, market state, briefs, k-lines, timeline and depth. The residual is handler plumbing |
+| `cmd/quote` | **47.2%** | Every renderer, including entitlement, market state, briefs, k-lines, timeline and depth. The residual is handler plumbing |
 | `cmd/reference` | **41.3%** | Every renderer, including the four-way scanner group dispatch. The residual is handler plumbing |
 | `cmd/corporate` | **31.9%** | Every renderer. The residual is handler plumbing |
 | `cmd/futures` | **31.7%** | Every renderer. The residual is handler plumbing |
@@ -1788,7 +1809,7 @@ ok  	cmd/corporate	coverage: 31.9% of statements
 ok  	cmd/futures	coverage: 31.7% of statements
 ok  	cmd/options	coverage: 44.7% of statements
 ok  	cmd/push	coverage: 86.0% of statements
-ok  	cmd/quote	coverage: 43.4% of statements
+ok  	cmd/quote	coverage: 47.2% of statements
 ok  	cmd/reference	coverage: 41.3% of statements
 ok  	cmd/token	coverage: 62.9% of statements
 ok  	cmd/trade	coverage: 57.9% of statements
@@ -1811,7 +1832,7 @@ does:
   live server: the callbacks the SDK invokes, and therefore the payload values
   the renderers format. The shapes are pinned; the values are not, because no
   run in this repo has produced any.
-- **`cmd/quote` is now at 43.4%, and no renderer in the project holds an SDK
+- **`cmd/quote` is now at 47.2%, and no renderer in the project holds an SDK
   client any more.** Its entitlement, market-state, brief, k-line, timeline and
   depth printers all take a `*sdkquote.QuoteClient`, a concrete SDK struct with no
   interface, no injectable constructor and no transport seam — so they used to be
