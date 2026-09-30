@@ -73,15 +73,20 @@ func opCorporateAction(ctx context.Context, qc *sdkquote.QuoteClient, o options,
 	}
 
 	rocli.Section(out, "%s (market=%s)", what, o.Market)
+	printCorporateActions(rows, o.Limit)
+	return nil
+}
+
+func printCorporateActions(rows []sdkmodel.CorporateAction, limit int) {
 	if len(rows) == 0 {
 		fmt.Fprintln(out, "  (no rows returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  %-12s %-12s %-14s %-12s %-12s %10s %-8s %s\n",
 		"SYMBOL", "ACTION", "EXECUTE", "RECORD", "ANNOUNCED", "AMOUNT", "CCY", "FACTOR")
 	for i, r := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(rows), limit)
 			break
 		}
 		factor := ""
@@ -92,7 +97,6 @@ func opCorporateAction(ctx context.Context, qc *sdkquote.QuoteClient, o options,
 			r.Symbol, rocli.Dash(r.ActionType), rocli.Dash(r.ExecuteDate), rocli.Dash(r.RecordDate),
 			rocli.Dash(r.AnnouncedDate), r.Amount, rocli.Dash(r.Currency), rocli.Dash(factor))
 	}
-	return nil
 }
 
 // actionRequest builds the shared CorporateActionRequest. The date bounds are
