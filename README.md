@@ -1775,7 +1775,7 @@ Per-package statement coverage:
 | `internal/sdkcoverage` | **61.7%** | The client-surface walk, the AST call-site match, the allow-list's shape, and the reason derivation — each with a control test |
 | `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
-| `cmd/options` | **44.7%** | Every renderer, plus the option-identifier parsing and the `-op` vocabulary. The residual is handler plumbing, which needs a live account |
+| `cmd/options` | **48.8%** | Every renderer, plus the option-identifier parsing, the expiry conversion and the `-op chain` request validation. The residual is handler plumbing, which needs a live account |
 | `cmd/quote` | **43.4%** | Every renderer, including entitlement, market state, briefs, k-lines, timeline and depth. The residual is handler plumbing |
 | `cmd/reference` | **41.3%** | Every renderer, including the four-way scanner group dispatch. The residual is handler plumbing |
 | `cmd/corporate` | **31.9%** | Every renderer. The residual is handler plumbing |
@@ -1834,10 +1834,12 @@ does:
   also exempt from the four `truncation_guard_test.go` structural checks, which
   look for `if i >= limit` guards and find none here.
 - **`cmd/corporate` (31.9%), `cmd/futures` (31.7%), `cmd/reference` (41.3%) and
-  `cmd/options` (44.7%) had the same blocker and the same fix.** Their handlers
+  `cmd/options` (48.8%) had the same blocker and the same fix.** Their handlers
   no longer render inline; each delegates to a tested `print*` renderer, which is
-  what moved them off 2-5% and 16.3%. The residual is handler plumbing, not
-  rendering.
+  what moved them off 2-5% and 16.3%. The pure validation half has been tested
+  where it could be reached without a client — identifier parsing, the expiry
+  conversion, the `-op chain` request builder. The residual is the handler
+  plumbing that genuinely needs an account: the SDK call and its error wrapping.
 - **`-limit 0` now means "no rows" in every command, and that was a behaviour
   change.** Two sites — `opExpiration` and `printChains` — used to guard with
   `if o.Limit > 0 && i >= o.Limit`, so `-limit 0` printed *every* row there while
