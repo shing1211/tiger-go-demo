@@ -277,20 +277,24 @@ func opCapitalFlow(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 		return fmt.Errorf("get capital flow (%s, market=%s, period=%s): %w", symbol, o.Market, o.period, err)
 	}
 	rocli.Section(out, "capital flow (%s, period=%s)", symbol, o.period)
+	printCapitalFlow(flow, o.Limit)
+	return nil
+}
+
+func printCapitalFlow(flow *sdkmodel.CapitalFlow, limit int) {
 	if flow == nil {
 		fmt.Fprintln(out, "  (no data returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  %d bucket(s)\n", len(flow.Items))
 	fmt.Fprintf(out, "  %-22s %16s %s\n", "TIME", "NET_INFLOW", "TS")
 	for i, it := range flow.Items {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(flow.Items), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(flow.Items), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-22s %16.2f %s\n", rocli.Dash(it.Time), it.NetInflow, rocli.MSFmt(it.Timestamp))
 	}
-	return nil
 }
 
 // opCapitalDistribution reports the current-day inflow/outflow breakdown.

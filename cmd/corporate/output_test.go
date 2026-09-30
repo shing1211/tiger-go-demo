@@ -140,6 +140,45 @@ func TestPrintDelistings(t *testing.T) {
 	})
 }
 
+func TestPrintCapitalFlow(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printCapitalFlow(&sdkmodel.CapitalFlow{
+				Items: []sdkmodel.CapitalFlowItem{
+					{Time: "2025-01-17 10:00:00", NetInflow: 12345.0, Timestamp: 1705488000},
+				},
+			}, 20)
+		})
+		if !strings.Contains(got, "12345") {
+			t.Errorf("output should contain 12345, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty/nil", func(t *testing.T) {
+		got := capture(t, func() { printCapitalFlow(nil, 20) })
+		if !strings.Contains(got, "no data") {
+			t.Errorf("nil flow should say 'no data returned', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printCapitalFlow(&sdkmodel.CapitalFlow{
+				Items: []sdkmodel.CapitalFlowItem{
+					{Time: "AAA"},
+					{Time: "BBB"},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("row within limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("row past limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintIPOs(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
