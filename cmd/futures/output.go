@@ -451,15 +451,22 @@ func opHistoryMain(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 	}
 	rocli.Section(out, "historical main contracts")
 	fmt.Fprintf(out, "  %-14s %-14s %-12s %-12s\n", "SYMBOL", "CONTRACT", "BEGIN", "END")
-	for i, h := range hist {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(hist), o.Limit)
+	printHistoryMain(hist, o.Limit)
+	return nil
+}
+
+func printHistoryMain(hists []sdkmodel.FutureMainContractHistory, limit int) {
+	if len(hists) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for i, h := range hists {
+		if i >= limit {
 			break
 		}
 		fmt.Fprintf(out, "  %-14s %-14s %-12s %-12s\n",
 			rocli.Dash(h.Symbol), rocli.Dash(h.ContractCode), rocli.Dash(h.BeginDate), rocli.Dash(h.EndDate))
 	}
-	return nil
 }
 
 // ---- helpers ----

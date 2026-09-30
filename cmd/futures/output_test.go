@@ -319,3 +319,37 @@ func TestPrintTradingTimes(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintHistoryMain(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printHistoryMain([]sdkmodel.FutureMainContractHistory{
+				{Symbol: "CL", ContractCode: "CLmain", BeginDate: "2025-01-01", EndDate: "2025-01-31"},
+			}, 10)
+		})
+		if !strings.Contains(got, "CL") {
+			t.Errorf("output should contain CL; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printHistoryMain(nil, 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("empty should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printHistoryMain([]sdkmodel.FutureMainContractHistory{
+				{Symbol: "CL"}, {Symbol: "ES"},
+			}, 1)
+		})
+		if !strings.Contains(got, "CL") {
+			t.Errorf("first should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "ES") {
+			t.Errorf("second should be absent; got:\n%s", got)
+		}
+	})
+}
