@@ -105,6 +105,20 @@ func printEntitlement(w io.Writer, ent *sdkmodel.AddonEntitlement) {
 	}
 }
 
+// printMarketStates renders the market-state rows. It is separated from the
+// call below so the rendering can be tested without a credentialed round trip.
+func printMarketStates(w io.Writer, states []sdkmodel.MarketState) {
+	fmt.Fprintf(w, "== market state ==\n")
+	if len(states) == 0 {
+		fmt.Fprintln(w, "  (no data returned)")
+		return
+	}
+	for _, s := range states {
+		fmt.Fprintf(w, "  %-4s status=%-12s market_status=%-12s open=%s\n",
+			s.Market, s.Status, s.MarketStatus, orDash(s.OpenTime))
+	}
+}
+
 func printMarketState(ctx context.Context, qc *sdkquote.QuoteClient, market string, w io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -113,15 +127,7 @@ func printMarketState(ctx context.Context, qc *sdkquote.QuoteClient, market stri
 	if err != nil {
 		return fmt.Errorf("get market state (%s): %w", market, err)
 	}
-	fmt.Fprintf(w, "== market state ==\n")
-	if len(states) == 0 {
-		fmt.Fprintln(w, "  (no data returned)")
-		return nil
-	}
-	for _, s := range states {
-		fmt.Fprintf(w, "  %-4s status=%-12s market_status=%-12s open=%s\n",
-			s.Market, s.Status, s.MarketStatus, orDash(s.OpenTime))
-	}
+	printMarketStates(w, states)
 	return nil
 }
 

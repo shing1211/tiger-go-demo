@@ -312,6 +312,46 @@ func TestHelpMentionsTheOp(t *testing.T) {
 	}
 }
 
+// capture runs fn with a fresh buffer and returns what it wrote. cmd/quote's
+// renderers take an explicit writer instead of sharing a package-level out, so
+// the swap happens at the call site rather than behind a global.
+func capture(t *testing.T, fn func(w io.Writer)) string {
+	t.Helper()
+	var buf bytes.Buffer
+	fn(&buf)
+	return buf.String()
+}
+
+func TestPrintMarketStates(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printMarketStates(w, []sdkmodel.MarketState{
+				{Market: "US", Status: "normal", MarketStatus: "Trading", OpenTime: "2025-01-02 09:30:00"},
+			})
+		})
+		// The row is built with the printer's own verb, so this pins the value
+		// and the column order without hard-coding a count of spaces.
+		for _, want := range []string{
+			"== market state ==",
+			fmt.Sprintf("  %-4s status=%-12s market_status=%-12s open=%s",
+				"US", "normal", "Trading", "2025-01-02 09:30:00"),
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) { printMarketStates(w, nil) })
+		for _, want := range []string{"== market state ==", "  (no data returned)"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+}
+
 // TestSplitSymbols covers the -symbols parsing the default path uses, including
 // the case that must not reach Tiger: an empty flag.
 func TestSplitSymbols(t *testing.T) {
