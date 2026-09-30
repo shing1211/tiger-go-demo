@@ -1025,3 +1025,39 @@ func TestPrintKlineQuota(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintTradeMetas(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradeMetas([]sdkmodel.TradeMeta{
+				{Symbol: "AAPL", LotSize: 100, MinTick: 0.01, SpreadScale: 2, ShortableFlag: "YES", MarginableFlag: "YES"},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "100", "0.0100", "YES"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printTradeMetas(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradeMetas([]sdkmodel.TradeMeta{
+				{Symbol: "AAA"}, {Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}

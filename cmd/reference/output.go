@@ -936,6 +936,29 @@ func opKlineQuota(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 	return nil
 }
 
+// printTradeMetas renders the per-symbol trading rules: lot size, minimum tick,
+// spread scale and the short and margin flags.
+//
+// The flags are dashed rather than blank when absent. A shortable or marginable
+// flag arrives as a string, and an empty one is the server not answering, not an
+// answer of "no", so it must not read as one.
+func printTradeMetas(metas []sdkmodel.TradeMeta, limit int) {
+	if len(metas) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %8s %10s %12s %-10s %-12s\n", "SYMBOL", "LOT", "MIN_TICK", "SPREAD", "SHORTABLE", "MARGINABLE")
+	for i, m := range metas {
+		if i >= limit {
+			rocli.Truncate(out, i, len(metas), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %8d %10.4f %12.4f %-10s %-12s\n",
+			rocli.Dash(m.Symbol), m.LotSize, m.MinTick, m.SpreadScale,
+			rocli.Dash(m.ShortableFlag), rocli.Dash(m.MarginableFlag))
+	}
+}
+
 // opTradeMetas returns trading metadata (lot size, tick size, shortable flags).
 func opTradeMetas(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
@@ -950,16 +973,7 @@ func opTradeMetas(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 		return fmt.Errorf("get trade metas (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "trade metadata")
-	fmt.Fprintf(out, "  %-12s %8s %10s %12s %-10s %-12s\n", "SYMBOL", "LOT", "MIN_TICK", "SPREAD", "SHORTABLE", "MARGINABLE")
-	for i, m := range metas {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(metas), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %8d %10.4f %12.4f %-10s %-12s\n",
-			rocli.Dash(m.Symbol), m.LotSize, m.MinTick, m.SpreadScale,
-			rocli.Dash(m.ShortableFlag), rocli.Dash(m.MarginableFlag))
-	}
+	printTradeMetas(metas, o.Limit)
 	return nil
 }
 
