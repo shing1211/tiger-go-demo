@@ -1750,23 +1750,25 @@ Per-package statement coverage:
 | `internal/tigersdk` | **~98.7%** | Every SDK-input defence, session construction, both gateways, `Close`, error rendering, push client |
 | `cmd/push` | **86.0%** | The feed vocabulary against both dispatch switches, the flag defaults, the `-market` and `-indicators` validators, the cooldown policy, the delivery tracker, every renderer |
 | `internal/config` | **81.4%** | Env/YAML precedence, validation, redaction, the write gate, stray-file lookups |
-| `internal/sdkcoverage` | **61.7%** | The client-surface walk, the AST call-site match, the allow-list's shape, and the reason derivation — each with a control test |
 | `cmd/token` | **62.9%** | Flag resolution, the fixed action order, the nil token manager, and "the value is never printed" |
+| `internal/sdkcoverage` | **61.7%** | The client-surface walk, the AST call-site match, the allow-list's shape, and the reason derivation — each with a control test |
 | `cmd/trade` | **57.9%** | The write-gate dispatch table (the load-bearing part) |
 | `internal/rocli` | **48.2%** | Exit codes, row formatting, truncation, and the five helpers consolidated from five commands |
-| `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only |
-| `cmd/options` | **16.3%** | Option-identifier parsing, the `-op` vocabulary, `printChains` and `printGreeks` |
-| `cmd/corporate`, `cmd/futures`, `cmd/reference` | **2-5%** | The `-op` vocabulary, plus four renderers split from their SDK calls. The rest is a named ceiling — see below. `cmd/reference` also has `printBriefs` and `printBrokerSide` tested in this commit. |
+| `cmd/options` | **44.7%** | Every renderer, plus the option-identifier parsing and the `-op` vocabulary. The residual is handler plumbing, which needs a live account |
+| `cmd/reference` | **41.3%** | Every renderer, including the four-way scanner group dispatch. The residual is handler plumbing |
+| `cmd/corporate` | **31.9%** | Every renderer. The residual is handler plumbing |
+| `cmd/futures` | **31.7%** | Every renderer. The residual is handler plumbing |
+| `cmd/quote` | **21.2%** | The `-op` flag plumbing and the entitlement renderer only. The one data command not yet split — see below |
 | `test` | no statements | Holds only tests: the read-only classification and the coverage enforcement point |
 
 ```console
 $ go test -cover ./...
-ok  	cmd/corporate	coverage: 3.4% of statements
-ok  	cmd/futures	coverage: 2.4% of statements
-ok  	cmd/options	coverage: 16.3% of statements
+ok  	cmd/corporate	coverage: 31.9% of statements
+ok  	cmd/futures	coverage: 31.7% of statements
+ok  	cmd/options	coverage: 44.7% of statements
 ok  	cmd/push	coverage: 86.0% of statements
 ok  	cmd/quote	coverage: 21.2% of statements
-ok  	cmd/reference	coverage: 8.5% of statements
+ok  	cmd/reference	coverage: 41.3% of statements
 ok  	cmd/token	coverage: 62.9% of statements
 ok  	cmd/trade	coverage: 57.9% of statements
 ok  	internal/config	coverage: 81.4% of statements
@@ -1788,43 +1790,45 @@ does:
   live server: the callbacks the SDK invokes, and therefore the payload values
   the renderers format. The shapes are pinned; the values are not, because no
   run in this repo has produced any.
-- **`cmd/quote` at 21.2% covers exactly one endpoint's rendering.** The rest of
-  `cmd/quote`'s printers — briefs, k-lines, timeline, depth, market state — are
-  **not** covered, and they are not covered by an oversight that a better test
-  would fix. They take a `*sdkquote.QuoteClient`, a concrete SDK struct, and the
-  SDK offers **no seam to substitute a fake**: no interface, no exported
-  constructor that accepts one, no way to inject a transport. So those printers
-  can be exercised only against a live account, which this project does not have.
-  The entitlement printer avoids the problem by being split from the call
-  (`printAddonEntitlement` calls, `printEntitlement` renders), so the rendering
-  — which is where the absent-versus-zero subtlety lives — is testable offline.
-- **`cmd/corporate`, `cmd/futures` and `cmd/reference` are at 2-5%, and the rest
-  is a stated ceiling rather than an oversight.** Every `op*` function in those
-  three takes a `*sdkquote.QuoteClient`, a concrete SDK struct with no interface,
-  no injectable constructor and no transport seam — the same blocker as
-  `cmd/quote` above, and the same fix: split the call from the rendering. Four
-  renderers have been split that way and are tested (`printTradeRank` and
-  `printTimelineHistory` in `reference`; `printContracts` in `futures`;
-  `printWarrants` in `corporate`, which already took model values and needed only
-  a test). `cmd/reference` also has `printBriefs` and `printBrokerSide` tested.
-  **The other 24 `reference` endpoints, and every endpoint in
-  `corporate` and `futures` beyond those two, are not tested.** The blocker is
-  real; the ceiling is named here rather than left for a reader to discover.
-- **`cmd/options` is at 16.3%.** Nine of its ten `op*` functions render inline
-  and are untested, for the same structural reason. Two renderers
-  (`printChains` and `printGreeks`) are already split from their SDK calls and
-  are tested in this commit; the remaining eight are a named ceiling alongside
-  the others above. `opExpiration` is the other half of the `-limit 0` divergence
-  described below and cannot be pinned offline.
-- **The `-limit 0` flag behaves differently across the four data commands.** Two
-  sites — `opExpiration` (`cmd/options/output.go:45`) and `printChains`
-  (`cmd/options/output.go:132`) — guard with `if o.Limit > 0 && i >= o.Limit`,
-  so `-limit 0` prints every row and emits no truncation note. The remaining 48
-  sites use a bare `if i >= o.Limit`, so `-limit 0` prints zero rows silently:
-  the column headings print but no data follows. The divergence is documented
-  here rather than fixed, because the 48 bare sites are addressed by the split
-  phase. `printChains`' behaviour is tested and pinned as the guard's documented
-  meaning; `opExpiration` holds the SDK client and cannot be reached offline.
+- **`cmd/quote` at 21.2% covers exactly one endpoint's rendering, and is now the
+  largest remaining ceiling.** The rest of `cmd/quote`'s printers — briefs,
+  k-lines, timeline, depth, market state — are **not** covered, and they are not
+  covered by an oversight that a better test would fix. They take a
+  `*sdkquote.QuoteClient`, a concrete SDK struct, and the SDK offers **no seam to
+  substitute a fake**: no interface, no exported constructor that accepts one, no
+  way to inject a transport. So those printers can be exercised only against a
+  live account, which this project does not have. The entitlement printer avoids
+  the problem by being split from the call (`printAddonEntitlement` calls,
+  `printEntitlement` renders), so the rendering — which is where the
+  absent-versus-zero subtlety lives — is testable offline. `cmd/quote` is the one
+  data command that was not included in the split described below, so its
+  printers still render inline. Applying the same call/render split there is the
+  obvious next step, and it is the same mechanical change.
+- **`cmd/corporate` (31.9%), `cmd/futures` (31.7%) and `cmd/reference` (41.3%)
+  had the same blocker as `cmd/quote` above, and it has since been removed.** Every
+  `op*` function in those three took a `*sdkquote.QuoteClient`, a concrete SDK
+  struct with no interface, no injectable constructor and no transport seam. The
+  fix was the same one already applied to `printAddonEntitlement`: split the call
+  from the rendering, so each handler keeps its SDK call and hands plain data to a
+  `print*` function. All 49 inline renderers across the three have now been split
+  that way and each has a test, which is what moved these packages off 2-5%. What
+  is still uncovered is the handler half — argument validation, the SDK call, and
+  error wrapping — which needs a live account for the same reason as `cmd/quote`.
+- **`cmd/options` is at 44.7%, for the same reason and the same fix.** Its ten
+  `op*` functions no longer render inline; each delegates to a tested `print*`
+  renderer. The residual is handler plumbing, not rendering.
+- **`-limit 0` now means "no rows" in every command, and that was a behaviour
+  change.** Two sites — `opExpiration` and `printChains` — used to guard with
+  `if o.Limit > 0 && i >= o.Limit`, so `-limit 0` printed *every* row there while
+  the bare `if i >= limit` sites printed none. This divergence used to be
+  documented here rather than fixed. It is now resolved: both sites use the bare
+  form, so no `Limit > 0 &&` guard remains anywhere in the tree. The cost is that
+  `-limit 0` on `-op chain` prints headings and no rows, where it used to print
+  the whole chain. `printChains`' behaviour under `-limit 0` is pinned by a test,
+  and `truncation_guard_test.go` in each of the four packages now fails if any
+  limit guard loses its `rocli.Truncate` call — the notice that says how many rows
+  a truncated result hid, which is easy to drop silently because the rows are
+  still capped either way.
 - **`internal/sdkcoverage` at 61.7% is the number that matters least, and it is
   worth saying why.** It covers the walk, the AST match, the allow-list's shape
   and the reason derivation, each with a control test. The uncovered remainder is
