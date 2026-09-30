@@ -283,16 +283,23 @@ func opKlinePage(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 		return fmt.Errorf("get future kline by page (%s, period=%s, page_size=%d): %w", code, o.period, pageSize, err)
 	}
 	rocli.Section(out, "future k-lines by page (%s, period=%s)", code, o.period)
+	printKlinePageBars(bars, o.Limit)
+	return nil
+}
+
+func printKlinePageBars(bars []sdkmodel.FutureKlineItem, limit int) {
+	if len(bars) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-22s %10s %10s %10s %10s %12s %12s\n", "TIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "OPEN_INT")
 	for i, b := range bars {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(bars), o.Limit)
+		if i >= limit {
 			break
 		}
 		fmt.Fprintf(out, "  %-22s %10.4f %10.4f %10.4f %10.4f %12d %12d\n",
 			rocli.MSFmt(b.Time), b.Open, b.High, b.Low, b.Close, b.Volume, b.OpenInterest)
 	}
-	return nil
 }
 
 // ---- microstructure ----
