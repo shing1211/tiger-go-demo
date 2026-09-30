@@ -280,3 +280,42 @@ func TestPrintFutureTicks(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintTradingTimes(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradingTimes(&sdkmodel.FutureTradingTime{
+				TradingTimes: []sdkmodel.FutureTradingSegment{
+					{Start: 1737116400000, End: 1737116400000, Type: "RTH"},
+				},
+			}, 10)
+		})
+		if !strings.Contains(got, "RTH") {
+			t.Errorf("output should contain RTH; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty/nil", func(t *testing.T) {
+		got := capture(t, func() { printTradingTimes(nil, 10) })
+		if !strings.Contains(got, "no trading times returned") {
+			t.Errorf("nil should say 'no trading times returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradingTimes(&sdkmodel.FutureTradingTime{
+				TradingTimes: []sdkmodel.FutureTradingSegment{
+					{Type: "RTH", Start: 1, End: 2},
+					{Type: "Night", Start: 3, End: 4},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "RTH") {
+			t.Errorf("first should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "Night") {
+			t.Errorf("second should be absent; got:\n%s", got)
+		}
+	})
+}

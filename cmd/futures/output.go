@@ -410,21 +410,24 @@ func opTradingTimes(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		return fmt.Errorf("get future trading times (%s, date=%s): %w", code, rocli.DashOr(o.date, "server default"), err)
 	}
 	rocli.Section(out, "future trading times")
-	if tt == nil {
-		fmt.Fprintln(out, "  (no trading times returned)")
-		return nil
-	}
 	fmt.Fprintf(out, "  contract=%s biz_date=%s zone=%s\n",
 		rocli.Dash(tt.ContractCode), rocli.Dash(tt.BizDate), rocli.Dash(tt.Zone))
+	printTradingTimes(tt, o.Limit)
+	return nil
+}
+
+func printTradingTimes(tt *sdkmodel.FutureTradingTime, limit int) {
+	if tt == nil {
+		fmt.Fprintln(out, "  (no trading times returned)")
+		return
+	}
 	for i, seg := range tt.TradingTimes {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(tt.TradingTimes), o.Limit)
+		if i >= limit {
 			break
 		}
 		fmt.Fprintf(out, "    %-24s %s -> %s\n",
 			rocli.Dash(seg.Type), rocli.MSFmt(seg.Start), rocli.MSFmt(seg.End))
 	}
-	return nil
 }
 
 // opHistoryMain reports which contract was the main contract over a window,
