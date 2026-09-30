@@ -259,6 +259,41 @@ func TestPrintBrokerSide(t *testing.T) {
 	})
 }
 
+func TestPrintRefSymbols(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printRefSymbols([]string{"AAPL", "TSLA"}, 20)
+		})
+		for _, want := range []string{"AAPL", "TSLA"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printRefSymbols(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printRefSymbols([]string{"AAA", "BBB", "CCC"}, 2)
+		})
+		if !strings.Contains(got, "AAA") || !strings.Contains(got, "BBB") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "CCC") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated result should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintTimelineHistoryRowsLimit(t *testing.T) {
 	t.Run("truncation is stated at non-default limit", func(t *testing.T) {
 		at := func(clock string) int64 {

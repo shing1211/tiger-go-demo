@@ -23,6 +23,21 @@ var out io.Writer = os.Stdout
 
 // ---- symbol reference ----
 
+// printRefSymbols renders the full tradable symbol list.
+func printRefSymbols(syms []string, limit int) {
+	if len(syms) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for i, s := range syms {
+		if i >= limit {
+			rocli.Truncate(out, i, len(syms), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %s\n", s)
+	}
+}
+
 // opSymbols returns the full tradable symbol list for a market.
 func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -38,13 +53,7 @@ func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get symbols (market=%s sec_type=%s): %w", o.Market, o.SecType, err)
 	}
 	rocli.Section(out, "symbols (market=%s, sec_type=%s, %d total)", o.Market, o.SecType, len(syms))
-	for i, s := range syms {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(syms), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %s\n", s)
-	}
+	printRefSymbols(syms, o.Limit)
 	return nil
 }
 
