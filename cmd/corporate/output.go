@@ -407,14 +407,22 @@ func opFundSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 		return fmt.Errorf("get fund symbols: %w", err)
 	}
 	rocli.Section(out, "fund symbols (%d total)", len(syms))
+	printFundSymbols(syms, o.Limit)
+	return nil
+}
+
+func printFundSymbols(syms []string, limit int) {
+	if len(syms) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	for i, s := range syms {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(syms), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(syms), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %s\n", s)
 	}
-	return nil
 }
 
 func opFundContracts(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
