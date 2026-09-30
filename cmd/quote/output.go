@@ -192,18 +192,17 @@ func printKlines(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 	return nil
 }
 
-func printTimeline(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, w io.Writer) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("context: %w", err)
-	}
-	tl, err := qc.GetTimeline(symbols)
-	if err != nil {
-		return fmt.Errorf("get timeline: %w", err)
-	}
+// printIntradayTimelines renders a shape summary per session bucket plus the
+// first few points, not every point. It is separated from the call below so the
+// rendering can be tested without a credentialed round trip.
+//
+// The ten-point cap is a literal, and the notice it prints is hand-rolled, not
+// rocli.Truncate. Neither is derived from -limit, which does not reach this
+// endpoint. Both are what this has always printed; changing either changes the
+// output.
+func printIntradayTimelines(w io.Writer, tls []sdkmodel.Timeline) {
 	fmt.Fprintf(w, "\n== intraday timeline ==\n")
-	for _, t := range tl {
-		// The timeline payload is large; print a shape summary per session
-		// bucket plus the first few points, not every point.
+	for _, t := range tls {
 		fmt.Fprintf(w, "  %-10s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
 		buckets := []struct {
 			name string
@@ -228,6 +227,17 @@ func printTimeline(ctx context.Context, qc *sdkquote.QuoteClient, symbols []stri
 			}
 		}
 	}
+}
+
+func printTimeline(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string, w io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context: %w", err)
+	}
+	tl, err := qc.GetTimeline(symbols)
+	if err != nil {
+		return fmt.Errorf("get timeline: %w", err)
+	}
+	printIntradayTimelines(w, tl)
 	return nil
 }
 

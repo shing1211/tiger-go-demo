@@ -445,6 +445,108 @@ func TestPrintRealTimeKlines(t *testing.T) {
 	})
 }
 
+// TestPrintIntradayTimelines pins the two things about this renderer that a
+// reader would otherwise assume are bugs: the ten-point cap is a literal and not
+// the -limit flag, and the notice it prints is the hand-rolled
+// "... N more point(s)" rather than the shared rocli.Truncate wording. Both are
+// what the code has always printed.
+func TestPrintIntradayTimelines(t *testing.T) {
+	// points builds n distinguishable intraday points. The price rises by 1 each
+	// time, so the test can tell which points printed and which were capped.
+	points := func(n int) []sdkmodel.TimelineItem {
+		items := make([]sdkmodel.TimelineItem, n)
+		for i := range items {
+			items[i] = sdkmodel.TimelineItem{
+				Time:     int64(1767225600000 + i*60000),
+				Price:    float64(100 + i),
+				AvgPrice: 100.5 + float64(i),
+				Volume:   int64(10 * (i + 1)),
+			}
+		}
+		return items
+	}
+
+	t.Run("a bucket is capped at ten points and says how many it hid", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printIntradayTimelines(w, []sdkmodel.Timeline{
+				{Symbol: "AAPL", Period: "day", PreClose: 99.5, Intraday: &sdkmodel.TimelineBucket{Items: points(12)}},
+			})
+		})
+		if !strings.Contains(got, fmt.Sprintf("  %-10s period=%-8s pre_close=%.4f", "AAPL", "day", 99.5)) {
+			t.Errorf("the session heading should print, got:\n%s", got)
+		}
+		if !strings.Contains(got, "[intraday] 12 point(s)") {
+			t.Errorf("the bucket should report its true size, not the printed size, got:\n%s", got)
+		}
+		// The first point and the tenth print; the eleventh and twelfth do not.
+		if !strings.Contains(got, "price=100.0000") || !strings.Contains(got, "price=109.0000") {
+			t.Errorf("points 1..10 should print, got:\n%s", got)
+		}
+		for _, hidden := range []string{"price=110.0000", "price=111.0000"} {
+			if strings.Contains(got, hidden) {
+				t.Errorf("point past the ten-point cap should not print (%q), got:\n%s", hidden, got)
+			}
+		}
+		// The exact notice, character for character. It is not rocli.Truncate
+		// and must not be rewritten to match it.
+		if !strings.Contains(got, "    ... 2 more point(s)\n") {
+			t.Errorf("the truncation notice should say two more points, got:\n%s", got)
+		}
+	})
+
+	t.Run("a bucket of exactly ten points is not truncated", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printIntradayTimelines(w, []sdkmodel.Timeline{
+				{Symbol: "AAPL", Intraday: &sdkmodel.TimelineBucket{Items: points(10)}},
+			})
+		})
+		if !strings.Contains(got, "price=109.0000") {
+			t.Errorf("the tenth point should print, got:\n%s", got)
+		}
+		if strings.Contains(got, "more point(s)") {
+			t.Errorf("ten points is the cap, not over it, so nothing should be truncated; got:\n%s", got)
+		}
+	})
+
+	t.Run("a missing or empty bucket is skipped entirely", func(t *testing.T) {
+		// Nil buckets and zero-length buckets both fall through the same guard,
+		// so a symbol with no after-hours session prints nothing for it - not a
+		// heading, and not "0 point(s)".
+		got := capture(t, func(w io.Writer) {
+			printIntradayTimelines(w, []sdkmodel.Timeline{
+				{Symbol: "AAPL", Intraday: &sdkmodel.TimelineBucket{}, AfterHours: nil},
+			})
+		})
+		want := "\n== intraday timeline ==\n" +
+			fmt.Sprintf("  %-10s period=%-8s pre_close=%.4f\n", "AAPL", "", 0.0)
+		if got != want {
+			t.Errorf("only the session heading should print, got:\n%q", got)
+		}
+	})
+
+	t.Run("all three session buckets print in order", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) {
+			printIntradayTimelines(w, []sdkmodel.Timeline{
+				{
+					Symbol:     "AAPL",
+					PreHours:   &sdkmodel.TimelineBucket{Items: points(1)},
+					Intraday:   &sdkmodel.TimelineBucket{Items: points(1)},
+					AfterHours: &sdkmodel.TimelineBucket{Items: points(1)},
+				},
+			})
+		})
+		for _, want := range []string{"[pre_hours] 1 point(s)", "[intraday] 1 point(s)", "[after_hours] 1 point(s)"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if strings.Index(got, "[pre_hours]") > strings.Index(got, "[intraday]") ||
+			strings.Index(got, "[intraday]") > strings.Index(got, "[after_hours]") {
+			t.Errorf("buckets should print pre_hours, intraday, after_hours, got:\n%s", got)
+		}
+	})
+}
+
 // TestSplitSymbols covers the -symbols parsing the default path uses, including
 // the case that must not reach Tiger: an empty flag.
 func TestSplitSymbols(t *testing.T) {
