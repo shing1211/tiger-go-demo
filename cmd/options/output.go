@@ -38,18 +38,26 @@ func opExpiration(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 		return fmt.Errorf("get option expiration (market=%s): %w", o.Market, err)
 	}
 	rocli.Section(out, "option expirations (market=%s)", o.Market)
+	printExpiration(exps, o.Limit)
+	return nil
+}
+
+func printExpiration(exps []sdkmodel.OptionExpiration, limit int) {
+	if len(exps) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	for _, e := range exps {
 		fmt.Fprintf(out, "  %-10s %d listed expiry date(s), %d contract(s)\n",
 			e.Symbol, len(e.Dates), len(e.OptionSymbols))
 		for i, d := range e.Dates {
-			if o.Limit > 0 && i >= o.Limit {
-				rocli.Truncate(out, i, len(e.Dates), o.Limit)
+			if i >= limit {
+				rocli.Truncate(out, i, len(e.Dates), limit)
 				break
 			}
 			fmt.Fprintf(out, "    %-12s %-8s %s\n", d, dashAt(e.Periods, i), contractCount(e.Counts, i))
 		}
 	}
-	return nil
 }
 
 // ---- chain ----

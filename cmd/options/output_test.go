@@ -140,6 +140,56 @@ func TestPrintChains(t *testing.T) {
 	})
 }
 
+func TestPrintExpiration(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printExpiration([]sdkmodel.OptionExpiration{
+				{
+					Symbol:        "AAPL",
+					Dates:         []string{"2025-01-17", "2025-01-24"},
+					Periods:       []string{"w1", "w2"},
+					Counts:        []int{42, 7},
+					OptionSymbols: []string{"AAPL 250117C00150000", "AAPL 250124C00150000"},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "2025-01-17", "42 contract(s)"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printExpiration(nil, 20)
+		})
+		if got != "  (no rows returned)\n" {
+			t.Errorf("empty exps should print %q, got:\n%s", "  (no rows returned)\n", got)
+		}
+	})
+
+	t.Run("limit_truncation", func(t *testing.T) {
+		got := capture(t, func() {
+			printExpiration([]sdkmodel.OptionExpiration{
+				{
+					Symbol:        "AAPL",
+					Dates:         []string{"2025-01-17", "2025-01-24"},
+					Periods:       []string{"w1", "w2"},
+					Counts:        []int{42, 7},
+					OptionSymbols: []string{"AAPL 250117C00150000", "AAPL 250124C00150000"},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "2025-01-17") {
+			t.Errorf("output should contain %q, got:\n%s", "2025-01-17", got)
+		}
+		if strings.Contains(got, "2025-01-24") {
+			t.Errorf("output should NOT contain %q, got:\n%s", "2025-01-24", got)
+		}
+	})
+}
+
 func TestPrintGreeks(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
