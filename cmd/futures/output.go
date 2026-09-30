@@ -371,16 +371,23 @@ func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get future trade ticks (%s): %w", code, err)
 	}
 	rocli.Section(out, "future trade ticks (%s)", code)
+	printFutureTicks(ticks, o.Limit)
+	return nil
+}
+
+func printFutureTicks(ticks []sdkmodel.FutureTradeTickItem, limit int) {
+	if len(ticks) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-6s %-22s %-6s %10s %10s\n", "INDEX", "TIME", "DIR", "PRICE", "VOLUME")
 	for i, t := range ticks {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(ticks), o.Limit)
+		if i >= limit {
 			break
 		}
 		fmt.Fprintf(out, "  %-6d %-22s %-6s %10.4f %10d\n",
 			t.Index, rocli.MSFmt(t.Time), rocli.Dash(t.Direction), t.Price, t.Volume)
 	}
-	return nil
 }
 
 // ---- sessions ----

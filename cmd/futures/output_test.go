@@ -246,3 +246,37 @@ func TestPrintFutureDepth(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintFutureTicks(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureTicks([]sdkmodel.FutureTradeTickItem{
+				{Time: 1737116400000, Price: 100.5, Volume: 100},
+			}, 10)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("output should contain 100.5000; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printFutureTicks(nil, 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("empty should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printFutureTicks([]sdkmodel.FutureTradeTickItem{
+				{Price: 100.5}, {Price: 200.5},
+			}, 1)
+		})
+		if !strings.Contains(got, "100.5000") {
+			t.Errorf("first should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "200.5000") {
+			t.Errorf("second should be absent; got:\n%s", got)
+		}
+	})
+}
