@@ -67,6 +67,44 @@ func TestPrintWarrants(t *testing.T) {
 	})
 }
 
+func TestPrintSymbolChanges(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printSymbolChanges([]sdkmodel.CorporateSymbolChange{
+				{Symbol: "AAPL", ActionType: "RENAME", ExecuteDate: "2025-01-17", OldSymbol: "Apple", NewSymbol: "Apple Inc."},
+			}, 20)
+		})
+		if !strings.Contains(got, "Apple") {
+			t.Errorf("output should contain Apple, got:\n%s", got)
+		}
+		if !strings.Contains(got, "Apple Inc.") {
+			t.Errorf("output should contain 'Apple Inc.', got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printSymbolChanges(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty result should say 'no rows returned', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printSymbolChanges([]sdkmodel.CorporateSymbolChange{
+				{Symbol: "AAA", OldSymbol: "AAA", NewSymbol: "AAA_NEW"},
+				{Symbol: "BBB", OldSymbol: "BBB", NewSymbol: "BBB_NEW"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("row within limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("row past limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintIPOs(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {

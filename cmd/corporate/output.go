@@ -188,20 +188,24 @@ func opSymbolChange(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		return fmt.Errorf("get symbol changes (%s, market=%s): %w", strings.Join(symbols, ","), o.Market, err)
 	}
 	rocli.Section(out, "symbol changes (market=%s)", o.Market)
+	printSymbolChanges(rows, o.Limit)
+	return nil
+}
+
+func printSymbolChanges(rows []sdkmodel.CorporateSymbolChange, limit int) {
 	if len(rows) == 0 {
 		fmt.Fprintln(out, "  (no rows returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  %-16s %-16s %-12s %s\n", "OLD", "NEW", "EXECUTE", "REASON")
 	for i, r := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(rows), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-16s %-16s %-12s %s\n",
 			rocli.Dash(r.OldSymbol), rocli.Dash(r.NewSymbol), rocli.Dash(r.ExecuteDate), rocli.Dash(r.ActionType))
 	}
-	return nil
 }
 
 // opDelisting reports delistings and their reasons.
