@@ -530,6 +530,17 @@ func nearestExpiry(ctx context.Context, qc *sdkquote.QuoteClient, symbol, market
 	if err != nil {
 		return "", fmt.Errorf("get option expiration for %s (to resolve the nearest expiry): %w", symbol, err)
 	}
+	return nearestListedExpiry(exps, symbol, market)
+}
+
+// nearestListedExpiry is the decision nearestExpiry makes, split out so it can
+// be tested without a credentialed round trip.
+//
+// The rule is "the first expiry the server lists that actually carries dates",
+// not "the first expiry". An underlying can come back with placeholder rows
+// ahead of the real ones, and treating a date-less row as the answer would send
+// the chain request an empty expiry.
+func nearestListedExpiry(exps []sdkmodel.OptionExpiration, symbol, market string) (string, error) {
 	for _, e := range exps {
 		if len(e.Dates) > 0 {
 			return e.Dates[0], nil

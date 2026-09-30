@@ -634,3 +634,54 @@ func TestPrintAnalysis(t *testing.T) {
 		}
 	})
 }
+
+// nearestExpiry's only interesting decision is which row of the server's list to
+// believe, so that decision is separated from the fetch. The case that matters is
+// a date-less row arriving first: taking it would send the chain request an empty
+// expiry, so the rule is "first row that actually carries dates".
+func TestNearestListedExpiry(t *testing.T) {
+	t.Run("first row with dates wins", func(t *testing.T) {
+		got, err := nearestListedExpiry([]sdkmodel.OptionExpiration{
+			{Symbol: "AAPL", Dates: []string{"2025-01-17", "2025-02-21"}},
+			{Symbol: "AAPL", Dates: []string{"2025-03-21"}},
+		}, "AAPL", "US")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "2025-01-17" {
+			t.Errorf("want the nearest listed date 2025-01-17, got %q", got)
+		}
+	})
+
+	t.Run("a date-less row is skipped, not taken", func(t *testing.T) {
+		got, err := nearestListedExpiry([]sdkmodel.OptionExpiration{
+			{Symbol: "AAPL"},
+			{Symbol: "AAPL", Dates: []string{}},
+			{Symbol: "AAPL", Dates: []string{"2025-01-17"}},
+		}, "AAPL", "US")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "2025-01-17" {
+			t.Errorf("a placeholder row must not win; want 2025-01-17, got %q", got)
+		}
+	})
+
+	t.Run("no dated row says so and names the flag", func(t *testing.T) {
+		_, err := nearestListedExpiry([]sdkmodel.OptionExpiration{{Symbol: "AAPL"}}, "AAPL", "US")
+		if err == nil {
+			t.Fatal("an undated list should be an error, not an empty expiry")
+		}
+		for _, want := range []string{"no listed expiry", "AAPL", "US", "-expiry"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error should mention %q so the user knows what to pass, got: %v", want, err)
+			}
+		}
+	})
+
+	t.Run("an empty list is the same error", func(t *testing.T) {
+		if _, err := nearestListedExpiry(nil, "AAPL", "US"); err == nil {
+			t.Fatal("an empty list should be an error, not an empty expiry")
+		}
+	})
+}
