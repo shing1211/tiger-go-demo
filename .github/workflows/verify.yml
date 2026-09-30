@@ -45,20 +45,31 @@ jobs:
           cache: true
 
       - name: Race detector availability
-        # Reported, not asserted. Whether -race engages depends on whether the
-        # runner image ships a C compiler, and that is a property of the image
-        # rather than of this repository — so this step records what happened
-        # instead of failing the build over it. scripts/verify still uses -race
-        # unless TIGER_NO_RACE is set, and the log line below makes a silently
-        # un-raced run visible rather than invisible.
+        # Asserted, not reported. Whether -race engages depends on whether the
+        # runner image ships a C compiler, and if it silently does not, the
+        # suite still passes — green for the wrong reason, with the one check
+        # that would catch a concurrency bug quietly not running. That failure
+        # mode is the one this project cares about most, so a runner that cannot
+        # race fails here rather than reporting a pass.
+        shell: bash
         run: |
+          set -euo pipefail
           echo "CGO_ENABLED=$(go env CGO_ENABLED)"
           echo "CC=$(go env CC)"
-          if [ "$(go env CGO_ENABLED)" = "1" ]; then
-            echo "cgo is on; scripts/verify will use -race"
-          else
-            echo "cgo is off; scripts/verify will run without -race"
+          if [ "$(go env CGO_ENABLED)" != "1" ]; then
+            echo "::error::cgo is off on ${{ matrix.os }}, so -race cannot run."
+            echo "::error::scripts/verify would pass without the race detector, which"
+            echo "::error::is a false green. Either give the runner a C compiler or"
+            echo "::error::drop this platform from the matrix deliberately."
+            exit 1
           fi
+          # Prove the detector is really compiled in rather than merely enabled:
+          # a build that cannot link -race fails here even if CGO_ENABLED=1.
+          go test -count=1 -race -run TestNoSuchTestExists ./internal/logging/
 
       - name: scripts/verify
+        # bash explicitly, because the Windows runner's default shell is
+        # PowerShell, which cannot run a #!/bin/sh script. Git Bash is present on
+        # windows-latest, so this is portable across the matrix.
+        shell: bash
         run: ./scripts/verify

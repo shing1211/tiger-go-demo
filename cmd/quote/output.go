@@ -136,6 +136,10 @@ func printMarketState(ctx context.Context, qc *sdkquote.QuoteClient, market stri
 // trip. There is no empty-result branch, by design: the heading and the column
 // header always print, so an empty response reads as a table with no rows.
 func printRealTimeBriefs(w io.Writer, briefs []sdkmodel.Brief) {
+	if len(briefs) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(w, "\n== real-time quotes ==\n")
 	fmt.Fprintf(w, "  %-10s %10s %10s %10s %12s %10s\n", "SYMBOL", "LAST", "CHANGE", "CHG%", "VOLUME", "TIME")
 	for _, b := range briefs {
@@ -161,6 +165,10 @@ func printBriefs(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 // trip. The requested period is a paging parameter the server echo is not
 // guaranteed to carry, so it is passed in and printed in the heading.
 func printRealTimeKlines(w io.Writer, klines []sdkmodel.Kline, period string) {
+	if len(klines) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(w, "\n== k-lines (period=%s) ==\n", period)
 	for _, k := range klines {
 		fmt.Fprintf(w, "  %s (next_page_token=%s)\n", k.Symbol, orDash(k.NextPageToken))
@@ -200,7 +208,20 @@ func printKlines(ctx context.Context, qc *sdkquote.QuoteClient, symbols []string
 // rocli.Truncate. Neither is derived from -limit, which does not reach this
 // endpoint. Both are what this has always printed; changing either changes the
 // output.
+// The two display caps in this file are literals rather than -limit, because
+// -limit does not reach these two endpoints. They are named so the notice text
+// and the loop bound cannot drift apart, which is how the depth cap came to
+// truncate silently while its sibling announced itself.
+const (
+	timelinePointsShown = 10
+	depthLevelsShown    = 10
+)
+
 func printIntradayTimelines(w io.Writer, tls []sdkmodel.Timeline) {
+	if len(tls) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(w, "\n== intraday timeline ==\n")
 	for _, t := range tls {
 		fmt.Fprintf(w, "  %-10s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
@@ -218,8 +239,8 @@ func printIntradayTimelines(w io.Writer, tls []sdkmodel.Timeline) {
 			}
 			fmt.Fprintf(w, "  [%s] %d point(s)\n", bk.name, len(bk.b.Items))
 			for i, it := range bk.b.Items {
-				if i >= 10 {
-					fmt.Fprintf(w, "    ... %d more point(s)\n", len(bk.b.Items)-10)
+				if i >= timelinePointsShown {
+					fmt.Fprintf(w, "    ... %d more point(s)\n", len(bk.b.Items)-timelinePointsShown)
 					break
 				}
 				fmt.Fprintf(w, "    %-22s price=%.4f avg=%.4f volume=%d\n",
@@ -251,6 +272,10 @@ func printTimeline(ctx context.Context, qc *sdkquote.QuoteClient, symbols []stri
 // printIntradayTimelines it prints no notice - the rest of the book is simply
 // absent. Both are unchanged behaviour.
 func printQuoteDepths(w io.Writer, depths []sdkmodel.Depth, market string) {
+	if len(depths) == 0 {
+		fmt.Fprintln(w, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(w, "\n== order book depth (market=%s) ==\n", market)
 	for _, d := range depths {
 		fmt.Fprintf(w, "  %s\n", d.Symbol)
@@ -259,7 +284,14 @@ func printQuoteDepths(w io.Writer, depths []sdkmodel.Depth, market string) {
 			n = len(d.Bids)
 		}
 		fmt.Fprintf(w, "  %-10s %10s %10s   %10s %10s\n", "BID", "SIZE", "COUNT", "ASK", "SIZE")
-		for i := 0; i < n && i < 10; i++ {
+		// A book deeper than the cap used to stop without saying so, which read
+		// as a complete book. The notice is worded for levels rather than
+		// reusing rocli.Truncate's "row(s)", because a level is a price/size
+		// pair, not a table row.
+		if n > depthLevelsShown {
+			fmt.Fprintf(w, "    ... %d more level(s) not shown\n", n-depthLevelsShown)
+		}
+		for i := 0; i < n && i < depthLevelsShown; i++ {
 			var bp, bs, bc, ap, as string
 			if i < len(d.Bids) {
 				bp, bs, bc = fmt.Sprintf("%.4f", d.Bids[i].Price), fmt.Sprintf("%d", d.Bids[i].Volume), fmt.Sprintf("%d", d.Bids[i].Count)

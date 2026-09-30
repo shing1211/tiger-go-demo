@@ -169,15 +169,15 @@ singular/plural pairing is unique to `cmd/quote` and worth knowing before greppi
 Three things here are deliberate, and each is pinned by a test so it cannot change
 without a test failing:
 
-- **Four of the six renderers have no empty-result branch.** On an empty slice they
-  print the heading and nothing else. Adding a guard would be more consistent with
-  the other 60 renderers but would change output, so it was left alone.
-- **The 10-caps ignore `-limit`.** `printIntradayTimelines` announces
-  `... N more point(s)`; `printQuoteDepths` truncates *silently*, which claims a
-  completeness it does not have. That inconsistency is the strongest argument for
-  revisiting both, and the reason not to do it inside a pure-refactor task.
+- **The 10-caps ignore `-limit`.** `-limit` does not reach these two endpoints, so
+  the caps are literals, now named `timelinePointsShown` and `depthLevelsShown` so
+  the bound and the notice text cannot drift apart. Both announce what they hide;
+  `printQuoteDepths` used to truncate silently and no longer does.
 - **The timeline's notice is hand-rolled**, not `rocli.Truncate`, and reads
-  differently. Left as-is for the same reason.
+  differently. Left as-is, because these two endpoints have no `limit` to report.
+
+All six renderers now have an empty-result branch, matching the rest of the
+project. The heading is suppressed on an empty result, as everywhere else.
 
 `truncation_guard_test.go` is deliberately **not** in this package: it looks for
 `if i >= limit` guards, and there are none here, so it would fail its own

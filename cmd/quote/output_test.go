@@ -352,11 +352,13 @@ func TestPrintMarketStates(t *testing.T) {
 	})
 }
 
-// TestPrintRealTimeBriefs has no empty-result branch, and that is deliberate:
-// the heading and the column header print whether or not the server returned a
-// brief, so the absence is visible as a table with no rows rather than as a
-// sentence the reader has to interpret. The other 60 renderers in this project
-// print "(no rows returned)" here; adding that would change the output.
+// TestPrintRealTimeBriefs gained an empty-result branch after the split. It
+// originally printed the heading and the column header with nothing under them,
+// on the reasoning that an empty table reads as "no rows" without a sentence to
+// interpret. That was defensible but it was the only place in the project relying
+// on a reader noticing an empty table, and it is a weaker signal than the other 60
+// renderers give. The branch is here now; the heading is suppressed on empty,
+// which is what every other renderer does.
 func TestPrintRealTimeBriefs(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func(w io.Writer) {
@@ -376,16 +378,14 @@ func TestPrintRealTimeBriefs(t *testing.T) {
 		}
 	})
 
-	t.Run("an empty response prints the heading and no rows", func(t *testing.T) {
+	t.Run("an empty response says so and prints no heading", func(t *testing.T) {
 		got := capture(t, func(w io.Writer) { printRealTimeBriefs(w, nil) })
-		for _, want := range []string{"== real-time quotes ==", "SYMBOL"} {
-			if !strings.Contains(got, want) {
-				t.Errorf("output should contain %q, got:\n%s", want, got)
-			}
+		if !strings.Contains(got, "  (no rows returned)") {
+			t.Errorf("an empty response should say no rows, got:\n%q", got)
 		}
-		for _, unwanted := range []string{"no rows returned", "no data returned"} {
+		for _, unwanted := range []string{"== real-time quotes ==", "SYMBOL"} {
 			if strings.Contains(got, unwanted) {
-				t.Errorf("this renderer has no empty-result notice, so output should not contain %q; got:\n%s", unwanted, got)
+				t.Errorf("an empty response should not print %q; a heading over nothing is noise, got:\n%q", unwanted, got)
 			}
 		}
 	})
@@ -434,13 +434,13 @@ func TestPrintRealTimeKlines(t *testing.T) {
 		}
 	})
 
-	t.Run("no symbols prints the heading and nothing else", func(t *testing.T) {
+	t.Run("no symbols says so", func(t *testing.T) {
 		// The column header sits inside the per-symbol loop, so an empty
-		// response prints the heading alone. There is no empty-result notice
-		// here either; adding one would change the output.
+		// response used to print the heading alone. It now says so instead,
+		// matching every other renderer in the project.
 		got := capture(t, func(w io.Writer) { printRealTimeKlines(w, nil, "day") })
-		if got != "\n== k-lines (period=day) ==\n" {
-			t.Errorf("an empty response should print the heading only, got:\n%q", got)
+		if got != "  (no rows returned)\n" {
+			t.Errorf("an empty response should print the empty-result notice, got:\n%q", got)
 		}
 	})
 }
@@ -545,6 +545,13 @@ func TestPrintIntradayTimelines(t *testing.T) {
 			t.Errorf("buckets should print pre_hours, intraday, after_hours, got:\n%s", got)
 		}
 	})
+
+	t.Run("no symbols says so", func(t *testing.T) {
+		got := capture(t, func(w io.Writer) { printIntradayTimelines(w, nil) })
+		if got != "  (no rows returned)\n" {
+			t.Errorf("an empty response should print the empty-result notice, got:\n%q", got)
+		}
+	})
 }
 
 func TestPrintQuoteDepths(t *testing.T) {
@@ -618,16 +625,35 @@ func TestPrintQuoteDepths(t *testing.T) {
 		got := capture(t, func(w io.Writer) {
 			printQuoteDepths(w, []sdkmodel.Depth{{Symbol: "AAPL", Bids: levels(12), Asks: levels(12)}}, "US")
 		})
-		// The cap is a literal 10, not -limit, and it prints no notice: the
-		// eleventh level is simply absent. Both are unchanged behaviour.
+		// The cap is a literal 10, not -limit, but it now says how many levels
+		// it hid. It used to stop silently, which read as a complete book - the
+		// one place in the project that claimed a completeness it did not have.
 		if !strings.Contains(got, "109.0000") {
 			t.Errorf("the tenth level should print, got:\n%s", got)
 		}
 		if strings.Contains(got, "110.0000") {
 			t.Errorf("the eleventh level should not print, got:\n%s", got)
 		}
-		if strings.Contains(got, "not shown") || strings.Contains(got, "more row") {
-			t.Errorf("this cap prints no truncation notice, got:\n%s", got)
+		if !strings.Contains(got, "... 2 more level(s) not shown") {
+			t.Errorf("a capped book must say how many levels it hid, got:\n%s", got)
+		}
+	})
+
+	t.Run("a book exactly at the cap announces nothing", func(t *testing.T) {
+		// The boundary: with exactly ten levels nothing is hidden, so a notice
+		// here would be claiming rows were dropped when none were.
+		atCap := func(n int) []sdkmodel.DepthLevel {
+			var out []sdkmodel.DepthLevel
+			for i := 0; i < n; i++ {
+				out = append(out, sdkmodel.DepthLevel{Price: float64(100 + i)})
+			}
+			return out
+		}
+		got := capture(t, func(w io.Writer) {
+			printQuoteDepths(w, []sdkmodel.Depth{{Symbol: "AAPL", Bids: atCap(10), Asks: atCap(10)}}, "US")
+		})
+		if strings.Contains(got, "not shown") {
+			t.Errorf("a book exactly at the cap hides nothing and must not claim otherwise, got:\n%s", got)
 		}
 	})
 
@@ -646,10 +672,10 @@ func TestPrintQuoteDepths(t *testing.T) {
 		}
 	})
 
-	t.Run("no symbols prints the heading and nothing else", func(t *testing.T) {
+	t.Run("no symbols says so", func(t *testing.T) {
 		got := capture(t, func(w io.Writer) { printQuoteDepths(w, nil, "HK") })
-		if got != "\n== order book depth (market=HK) ==\n" {
-			t.Errorf("an empty response should print the heading only, got:\n%q", got)
+		if got != "  (no rows returned)\n" {
+			t.Errorf("an empty response should print the empty-result notice, got:\n%q", got)
 		}
 	})
 }

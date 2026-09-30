@@ -1823,16 +1823,22 @@ does:
   `printDepth`) were split later, each with a test. What is still uncovered across
   every data command is the handler half — argument validation, the SDK call, and
   error wrapping.
-- **`cmd/quote`'s two literal caps are a known inconsistency, not an oversight.**
-  `printIntradayTimelines` and `printQuoteDepths` cap at 10 rows by literal, so
-  `-limit` does not affect them, and they announce it differently: the timeline
-  prints `... N more point(s)` while the depth table truncates *silently*, which
-  claims a completeness it does not have. Both caps are pinned by tests, so they
-  cannot change without a test failing. Fixing them means either honouring
-  `-limit` or announcing the depth truncation, and both change output — so they
-  are recorded here as open questions rather than changed quietly. `cmd/quote` is
-  also exempt from the four `truncation_guard_test.go` structural checks, which
-  look for `if i >= limit` guards and find none here.
+- **`cmd/quote`'s two display caps are literals, and both now say what they hide.**
+  `printIntradayTimelines` and `printQuoteDepths` cap at 10 by literal, so
+  `-limit` does not reach them — they are named constants
+  (`timelinePointsShown`, `depthLevelsShown`) so the bound and the notice text
+  cannot drift apart. `printQuoteDepths` used to stop *silently*, which was the
+  one place in the project claiming a completeness it did not have; it now prints
+  `... N more level(s) not shown`, worded for price/size pairs rather than
+  reusing `rocli.Truncate`'s "row(s)". A book exactly at the cap prints no notice,
+  and that boundary is pinned.
+- **The four `cmd/quote` renderers that had no empty-result branch now have one.**
+  They printed a heading and column header over nothing, on the reasoning that an
+  empty table is self-evident. That was the only place relying on a reader
+  noticing an empty table, and it is a weaker signal than the other 60 renderers
+  give, so they now print `  (no rows returned)` and suppress the heading. This
+  changed output for an empty response and was a deliberate decision, not a
+  side-effect of the split.
 - **`cmd/corporate` (31.9%), `cmd/futures` (31.7%), `cmd/reference` (41.3%) and
   `cmd/options` (48.8%) had the same blocker and the same fix.** Their handlers
   no longer render inline; each delegates to a tested `print*` renderer, which is
