@@ -924,3 +924,51 @@ func TestPrintRefTimeline(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintRefKlinePageBars(t *testing.T) {
+	at := func(clock string) int64 {
+		t.Helper()
+		ts, err := time.ParseInLocation("2006-01-02 15:04:05", "2026-06-19 "+clock+":00", time.Local)
+		if err != nil {
+			t.Fatalf("parse %q: %v", clock, err)
+		}
+		return ts.UnixMilli()
+	}
+
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printRefKlinePageBars([]sdkmodel.KlineItem{
+				{Time: at("09:30"), Open: 187.00, High: 187.90, Low: 186.80, Close: 187.25, Volume: 41000000},
+			}, 20)
+		})
+		for _, want := range []string{"187.0000", "187.9000", "186.8000", "187.2500", "41000000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if !strings.Contains(got, rocli.MSFmt(at("09:30"))) {
+			t.Errorf("output should contain the rendered bar time, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printRefKlinePageBars(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty bar list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printRefKlinePageBars([]sdkmodel.KlineItem{
+				{Time: at("09:30"), Close: 111.11}, {Time: at("09:31"), Close: 222.22},
+			}, 1)
+		})
+		if !strings.Contains(got, "111.1100") {
+			t.Errorf("bars within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "222.2200") {
+			t.Errorf("a bar past the limit should not print; got:\n%s", got)
+		}
+	})
+}
