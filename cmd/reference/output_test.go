@@ -330,6 +330,42 @@ func TestPrintStockIndustry(t *testing.T) {
 	})
 }
 
+func TestPrintExchangeRates(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printExchangeRates([]sdkmodel.ExchangeRate{
+				{Currency: "USD", BaseCurrency: "CNY", Rate: 7.25, Date: "2025-01-17"},
+			}, 20)
+		})
+		for _, want := range []string{"USD", "CNY", "7.250000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printExchangeRates(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printExchangeRates([]sdkmodel.ExchangeRate{
+				{Currency: "AAA"}, {Currency: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintFinancialCurrencies(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {

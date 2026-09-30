@@ -401,6 +401,23 @@ func opFinancialCurrency(ctx context.Context, qc *sdkquote.QuoteClient, o option
 	return nil
 }
 
+// printExchangeRates renders FX rates.
+func printExchangeRates(rates []sdkmodel.ExchangeRate, limit int) {
+	if len(rates) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-8s %-12s %-8s %18s\n", "CCY", "BASE", "DATE", "RATE")
+	for i, r := range rates {
+		if i >= limit {
+			rocli.Truncate(out, i, len(rates), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-8s %-12s %-8s %18.6f\n",
+			rocli.Dash(r.Currency), rocli.Dash(r.BaseCurrency), rocli.Dash(r.Date), r.Rate)
+	}
+}
+
 // opExchangeRate returns FX rates. This endpoint wants YYYYMMDD dates, not the
 // YYYY-MM-DD used by the calendar, so the dashes are stripped.
 func opExchangeRate(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
@@ -422,15 +439,7 @@ func opExchangeRate(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 		return fmt.Errorf("get exchange rate (%s): %w", strings.Join(currencies, ","), err)
 	}
 	rocli.Section(out, "exchange rates")
-	fmt.Fprintf(out, "  %-8s %-12s %-8s %18s\n", "CCY", "BASE", "DATE", "RATE")
-	for i, r := range rates {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rates), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-8s %-12s %-8s %18.6f\n",
-			rocli.Dash(r.Currency), rocli.Dash(r.BaseCurrency), rocli.Dash(r.Date), r.Rate)
-	}
+	printExchangeRates(rates, o.Limit)
 	return nil
 }
 
