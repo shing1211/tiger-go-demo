@@ -330,6 +330,48 @@ func TestPrintStockIndustry(t *testing.T) {
 	})
 }
 
+func TestPrintScannerRows(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printScannerRows(&sdkmodel.ScannerResult{
+				Page: 1, TotalPage: 1, TotalCount: 1, PageSize: 10,
+				Items: []sdkmodel.ScannerResultItem{
+					{Symbol: "AAPL", Market: "STOCK", BaseDataList: []sdkmodel.ScannerDataRow{{Index: 1, Name: "rank", Value: "1", Data: 1.0}}},
+				},
+			}, 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain %q, got:\n%s", "AAPL", got)
+		}
+		if strings.Contains(got, "no rows returned") || strings.Contains(got, "no data returned") {
+			t.Errorf("empty groups should not print 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("nil result says so", func(t *testing.T) {
+		got := capture(t, func() { printScannerRows(nil, 20) })
+		if !strings.Contains(got, "no data") {
+			t.Errorf("nil result should say 'no data'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printScannerRows(&sdkmodel.ScannerResult{
+				Items: []sdkmodel.ScannerResultItem{
+					{Symbol: "AAA"}, {Symbol: "BBB"},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintCalendar(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {

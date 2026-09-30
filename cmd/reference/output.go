@@ -521,6 +521,56 @@ func opCalendar(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 	return nil
 }
 
+// printScannerRows renders one page of screener matches.
+//
+// The page line comes before the rows and not inside them: a screener result
+// spans as many pages as the caller asked for, so without it a reader cannot
+// tell which slice of a multi-page result they are looking at. The cursor is on
+// the same line because it is the handle for the next page, and it is dashed
+// rather than blank when the server sends none.
+func printScannerRows(res *sdkmodel.ScannerResult, limit int) {
+	if res == nil {
+		fmt.Fprintln(out, "  (no data returned)")
+		return
+	}
+	fmt.Fprintf(out, "  page %d/%d, %d match(es), page_size=%d cursor=%s\n",
+		res.Page, res.TotalPage, res.TotalCount, res.PageSize, rocli.Dash(res.CursorID))
+	for i, it := range res.Items {
+		if i >= limit {
+			rocli.Truncate(out, i, len(res.Items), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s\n", rocli.Dash(it.Symbol), rocli.Dash(it.Market))
+		for _, group := range []struct {
+			name string
+			rows []sdkmodel.ScannerDataRow
+		}{
+			{"base", it.BaseDataList},
+			{"accumulate", it.AccumulateDataList},
+			{"financial", it.FinancialDataList},
+			{"multi_tag", it.MultiTagDataList},
+		} {
+			printScannerGroup(out, group.name, group.rows)
+		}
+	}
+}
+
+// printScannerGroup renders one named block of a match's screener data.
+//
+// All four groups a match can carry hold the same row type, so one renderer
+// takes the group name rather than four near-identical ones existing. An absent
+// group prints nothing: the screener omits a group the query did not ask for,
+// and an empty heading would claim the server sent one and found nothing in it.
+func printScannerGroup(w io.Writer, name string, rows []sdkmodel.ScannerDataRow) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "    [%s]\n", name)
+	for _, row := range rows {
+		fmt.Fprintf(w, "      %-24s %-24s %s\n", rocli.Dash(row.Name), rocli.Dash(row.Value), fmt.Sprintf("%.4f", row.Data))
+	}
+}
+
 // opScanner runs the stock screener. Its filters are open-ended server-side
 // structures, so they arrive as JSON on the command line and are validated
 // before the request goes out.
@@ -553,36 +603,7 @@ func opScanner(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("market scanner (market=%s page=%d page_size=%d): %w", o.Market, req.Page, req.PageSize, err)
 	}
 	rocli.Section(out, "market scanner (market=%s)", o.Market)
-	if res == nil {
-		fmt.Fprintln(out, "  (no data returned)")
-		return nil
-	}
-	fmt.Fprintf(out, "  page %d/%d, %d match(es), page_size=%d cursor=%s\n",
-		res.Page, res.TotalPage, res.TotalCount, res.PageSize, rocli.Dash(res.CursorID))
-	for i, it := range res.Items {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(res.Items), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-8s\n", rocli.Dash(it.Symbol), rocli.Dash(it.Market))
-		for _, group := range []struct {
-			name string
-			rows []sdkmodel.ScannerDataRow
-		}{
-			{"base", it.BaseDataList},
-			{"accumulate", it.AccumulateDataList},
-			{"financial", it.FinancialDataList},
-			{"multi_tag", it.MultiTagDataList},
-		} {
-			if len(group.rows) == 0 {
-				continue
-			}
-			fmt.Fprintf(out, "    [%s]\n", group.name)
-			for _, row := range group.rows {
-				fmt.Fprintf(out, "      %-24s %-24s %s\n", rocli.Dash(row.Name), rocli.Dash(row.Value), fmt.Sprintf("%.4f", row.Data))
-			}
-		}
-	}
+	printScannerRows(res, o.Limit)
 	return nil
 }
 
