@@ -330,6 +330,40 @@ func TestPrintStockIndustry(t *testing.T) {
 	})
 }
 
+func TestPrintShortInterest(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printShortInterest([]sdkmodel.ShortInterest{
+				{Symbol: "AAPL", SettlementDate: "2025-01-17", ShortInterest: 15000000, ShortInterestPrevious: 14000000, PercentOfFloat: 2.5, DaysToCover: 3.2, PercentChange: 7.1},
+			}, 20)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("output should contain %q, got:\n%s", "AAPL", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printShortInterest(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printShortInterest([]sdkmodel.ShortInterest{
+				{Symbol: "AAA"}, {Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintExchangeRates(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {

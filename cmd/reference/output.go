@@ -443,6 +443,24 @@ func opExchangeRate(ctx context.Context, qc *sdkquote.QuoteClient, o options) er
 	return nil
 }
 
+// printShortInterest renders short-interest statistics.
+func printShortInterest(interests []sdkmodel.ShortInterest, limit int) {
+	if len(interests) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-12s %14s %14s %10s %10s %10s\n", "SYMBOL", "SETTLED", "SHORT", "PREV", "%FLOAT", "DAYS", "CHG%")
+	for i, s := range interests {
+		if i >= limit {
+			rocli.Truncate(out, i, len(interests), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-12s %14.0f %14.0f %10.2f %10.2f %9.2f%%\n",
+			s.Symbol, rocli.Dash(s.SettlementDate), s.ShortInterest, s.ShortInterestPrevious,
+			s.PercentOfFloat, s.DaysToCover, s.PercentChange)
+	}
+}
+
 // opShortInterest returns short-interest statistics.
 func opShortInterest(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
@@ -460,16 +478,7 @@ func opShortInterest(ctx context.Context, qc *sdkquote.QuoteClient, o options) e
 		return fmt.Errorf("get short interest (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "short interest")
-	fmt.Fprintf(out, "  %-12s %-12s %14s %14s %10s %10s %10s\n", "SYMBOL", "SETTLED", "SHORT", "PREV", "%FLOAT", "DAYS", "CHG%")
-	for i, s := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-12s %14.0f %14.0f %10.2f %10.2f %9.2f%%\n",
-			s.Symbol, rocli.Dash(s.SettlementDate), s.ShortInterest, s.ShortInterestPrevious,
-			s.PercentOfFloat, s.DaysToCover, s.PercentChange)
-	}
+	printShortInterest(rows, o.Limit)
 	return nil
 }
 
