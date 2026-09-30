@@ -57,6 +57,22 @@ func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	return nil
 }
 
+// printSymbolNames renders the symbol list with display names.
+func printSymbolNames(names []sdkmodel.SymbolName, limit int) {
+	if len(names) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-16s %-8s %-40s\n", "SYMBOL", "MARKET", "NAME")
+	for i, n := range names {
+		if i >= limit {
+			rocli.Truncate(out, i, len(names), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-16s %-8s %-40s\n", rocli.Dash(n.Symbol), rocli.Dash(n.Market), rocli.Dash(n.Name))
+	}
+}
+
 // opSymbolNames returns the same list with display names.
 func opSymbolNames(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -72,14 +88,7 @@ func opSymbolNames(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 		return fmt.Errorf("get symbol names (market=%s sec_type=%s): %w", o.Market, o.SecType, err)
 	}
 	rocli.Section(out, "symbol names (market=%s, %d total)", o.Market, len(names))
-	fmt.Fprintf(out, "  %-16s %-8s %-40s\n", "SYMBOL", "MARKET", "NAME")
-	for i, n := range names {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(names), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-16s %-8s %-40s\n", rocli.Dash(n.Symbol), rocli.Dash(n.Market), rocli.Dash(n.Name))
-	}
+	printSymbolNames(names, o.Limit)
 	return nil
 }
 
