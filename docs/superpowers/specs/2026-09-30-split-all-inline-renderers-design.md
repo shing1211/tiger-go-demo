@@ -205,13 +205,24 @@ Where two handlers share a renderer (options/opQuote → `printBriefs` using `Op
 
 ## Scope checklist
 
-- [ ] All 49 handlers split into call + render
-- [ ] All 7 shared helpers (`printContracts`, `printWarrants`, `printBriefs`, `printTradeRank`, `printTimelineHistory`, `printTimelineHistoryRows`, `printBrokerSide`) retained and unchanged
-- [ ] All renderers have an empty-result branch
-- [ ] All renderers use bare `i >= limit` guard (2 sites updated: `opExpiration` and `opChain` in options)
-- [ ] `opScanner` has 4 group renderers + 1 outer renderer
-- [ ] `opStockFundamental` and `opScannerTags` call `rocli.JSON` in the renderer
-- [ ] Each package has tests for each renderer covering: populated, empty, limit, nil where applicable
-- [ ] Gate green after each phase: `gofmt`, `go vet`, `go test ./cmd/options/... ./cmd/futures/... ./cmd/corporate/... ./cmd/reference/...`
-- [ ] README coverage table re-measured after all 4 phases
-- [ ] This spec is archived after all 4 phases complete
+- [x] All 49 handlers split into call + render
+- [x] All 7 shared helpers (`printContracts`, `printWarrants`, `printBriefs`, `printTradeRank`, `printTimelineHistory`, `printTimelineHistoryRows`, `printBrokerSide`) retained and unchanged — verified by brace-matched body comparison against the pre-split revision
+- [x] All renderers have an empty-result branch
+- [x] All renderers use bare `i >= limit` guard (2 sites updated: `opExpiration` and `opChain` in options). `opChain` had no task in the plan and was finished afterwards in `d0c0290`; zero `Limit > 0 &&` guards remain in the tree
+- [~] `opScanner` has 4 group renderers + 1 outer renderer — **deviated to 1 group renderer.** All four groups share the row type `sdkmodel.ScannerDataRow` and one format string, so `printScannerGroup(w, name, rows)` serves all of them and the group names stay in the dispatch loop. Four copies would have been duplication
+- [x] `opStockFundamental` and `opScannerTags` call `rocli.JSON` in the renderer
+- [x] Each package has tests for each renderer covering: populated, empty, limit, nil where applicable — 12/11/12/28 test functions across options/futures/corporate/reference
+- [x] Gate green after each phase: `gofmt`, `go vet`, `go test ./cmd/options/... ./cmd/futures/... ./cmd/corporate/... ./cmd/reference/...`
+- [x] README coverage table re-measured after all 4 phases — `9c57a97`. SDK coverage unchanged at 140/159 (the split references no new SDK methods, as intended); statement coverage moved corporate 3.4%→31.9%, futures 2.4%→31.7%, reference 8.5%→41.3%, options 16.3%→44.7%
+- [x] This spec is archived after all 4 phases complete — marked complete in place rather than moved, matching the sibling `2026-09-29-verification-gaps` pair, which is also left in place dated. No openspec change was ever created for this work, so `openspec/changes/archive` does not apply
+
+### Added during implementation, not in the original scope
+
+- `truncation_guard_test.go` in all four packages: fails if any limit guard loses its
+  `rocli.Truncate` call. All nine futures renderers had silently lost theirs in one
+  batch, and the existing limit tests could not catch it because a bare `break` also
+  makes rows-past-the-limit absent. 52 capped loops are now checked.
+- [`docs/superpowers/renderer-reference.md`](../renderer-reference.md): the verified
+  signature of all 60 renderers, after briefs named eight nonexistent SDK types.
+- `cmd/quote` remains the one data command whose printers render inline and are
+  untestable offline. It was outside this spec's four packages.

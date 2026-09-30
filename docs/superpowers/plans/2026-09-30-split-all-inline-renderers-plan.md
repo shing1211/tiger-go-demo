@@ -1,5 +1,27 @@
 # Split all inline renderers — Implementation Plan
 
+> **Status: COMPLETE.** All 51 tasks are implemented and the final gate is green
+> (`gofmt -l .` clean, `go vet ./...` clean, `go test ./...` 14/14 packages).
+> Two tasks were no-ops because the code was already split (`printContracts` in
+> futures, `printScannerTags` and `printBriefs` in reference), and one needed
+> tests only (`printWarrants` in corporate).
+>
+> **This plan contained three errors that the code corrected.** Kept visible
+> rather than edited out, because each one cost rework:
+> 1. Type names in the task briefs were frequently wrong (`sdkmodel.OptionBrief`,
+>    `MarketScannerResult`, `OvernightQuote`, …). The code is authoritative.
+>    [`docs/superpowers/renderer-reference.md`](../renderer-reference.md) now
+>    carries the verified signature for all 60 renderers.
+> 2. "Limit guard: bare `i >= limit`" was not enough — nine futures renderers
+>    lost their `rocli.Truncate` call and the briefs did not say to keep it.
+>    `truncation_guard_test.go` in all four packages now enforces this.
+> 3. Review Focus #3 said the futures kline limit applies to the inner loop
+>    only. The base code limited both loops. Restored to match the base.
+>
+> Also settled after the plan closed: `opChain`/`printChains` was never given a
+> task, so the spec's "2 sites updated" checklist item was left at 1/2. Finished
+> in `d0c0290`, which also made `-limit 0` mean "no rows" uniformly.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split every `op*` handler in cmd/options, cmd/futures, cmd/corporate, and cmd/reference into a thin SDK-call wrapper and a pure rendering function, making each renderer testable offline without a live account.
