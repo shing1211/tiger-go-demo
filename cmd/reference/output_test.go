@@ -330,6 +330,24 @@ func TestPrintStockIndustry(t *testing.T) {
 	})
 }
 
+func TestPrintStockFundamental(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printStockFundamental(map[string]any{"market_cap": float64(2800000000000)})
+		})
+		if !strings.Contains(got, "market_cap") {
+			t.Errorf("output should contain %q, got:\n%s", "market_cap", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printStockFundamental(nil) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty map should say so; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintStockDetails(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
@@ -404,6 +422,30 @@ func TestPrintSymbolNames(t *testing.T) {
 		}
 		if !strings.Contains(got, "1 more row(s) not shown") {
 			t.Errorf("a truncated result should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+}
+
+func TestPrintScannerTags(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printScannerTags(out, []sdkmodel.MarketScannerTagGroup{
+				{Market: "US", MultiTagField: "high_vol", TagList: []sdkmodel.MarketScannerTag{
+					{Field: "HIGH_VOL", Name: "High Volatility", Values: []string{"true"}},
+				}},
+			})
+		})
+		for _, want := range []string{"HIGH_VOL", "High Volatility", "high_vol"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printScannerTags(out, nil) })
+		if !strings.Contains(got, "no tags") {
+			t.Errorf("an empty tags list should say so; got:\n%s", got)
 		}
 	})
 }

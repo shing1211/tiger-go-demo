@@ -228,6 +228,15 @@ func printBrokerSide(label string, levels []sdkmodel.StockBrokerItem) {
 
 // ---- fundamentals ----
 
+// printStockFundamental renders Tiger's fundamental bundle as JSON.
+func printStockFundamental(fund map[string]any) error {
+	if len(fund) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return nil
+	}
+	return rocli.JSON(out, fund)
+}
+
 // opStockFundamental returns Tiger's fundamental bundle. The SDK hands back a
 // raw map because the field set is server-defined, so it is dumped as JSON
 // rather than forced into invented columns.
@@ -249,11 +258,8 @@ func opStockFundamental(ctx context.Context, qc *sdkquote.QuoteClient, o options
 		return fmt.Errorf("get stock fundamental (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "stock fundamental (%s)", strings.Join(symbols, ","))
-	if len(fund) == 0 {
-		fmt.Fprintln(out, "  (no data returned)")
-		return nil
-	}
-	return rocli.JSON(out, fund)
+	printStockFundamental(fund)
+	return nil
 }
 
 // opFinancialDaily returns a daily time series of named fundamental fields.
@@ -526,6 +532,15 @@ func opScanner(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	return nil
 }
 
+// printScannerTags renders the scanner tag groups.
+func printScannerTags(w io.Writer, groups []sdkmodel.MarketScannerTagGroup) error {
+	if len(groups) == 0 {
+		fmt.Fprintln(w, "  (no tags returned)")
+		return nil
+	}
+	return rocli.JSON(w, groups)
+}
+
 // opScannerTags lists the multi-tag fields the screener understands.
 func opScannerTags(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -540,13 +555,7 @@ func opScannerTags(ctx context.Context, qc *sdkquote.QuoteClient, o options) err
 		return fmt.Errorf("get market scanner tags (market=%s): %w", o.Market, err)
 	}
 	rocli.Section(out, "market scanner tags (market=%s)", o.Market)
-	if len(groups) == 0 {
-		fmt.Fprintln(out, "  (no tags returned)")
-		return nil
-	}
-	// The tag payload is server-defined, so it is dumped faithfully instead of
-	// being squeezed into a guessed column layout.
-	return rocli.JSON(out, groups)
+	return printScannerTags(out, groups)
 }
 
 // opIndustryList lists Tiger's industry classifications.
