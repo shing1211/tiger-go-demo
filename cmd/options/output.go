@@ -467,6 +467,29 @@ func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 
 // ---- analysis ----
 
+func printAnalysis(results []sdkmodel.OptionAnalysis, limit int) {
+	if len(results) == 0 {
+		fmt.Fprintf(out, "  (no rows returned)\n")
+		return
+	}
+	for _, a := range results {
+		fmt.Fprintf(out, "  %-10s iv30d=%.4f hist_vol=%.4f iv/hv=%.4f call/put=%.4f vol_points=%d\n",
+			a.Symbol, a.ImpliedVol30Days, a.HisVolatility, a.IvHisVRatio, a.CallPutRatio, len(a.VolatilityList))
+		if m := a.ImpliedVolMetric; m != nil {
+			fmt.Fprintf(out, "    metric period=%-8s percentile=%.2f rank=%.2f\n",
+				rocli.Dash(m.Period), m.Percentile, m.Rank)
+		}
+		for i, p := range a.VolatilityList {
+			if i >= limit {
+				rocli.Truncate(out, i, len(a.VolatilityList), limit)
+				break
+			}
+			fmt.Fprintf(out, "    %-22s iv=%.4f percentile=%.2f rank=%.2f hist_vol=%.4f\n",
+				rocli.MSFmt(p.Timestamp), p.ImpliedVol, p.Percentile, p.Rank, p.HisVolatility)
+		}
+	}
+}
+
 func opAnalysis(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
 	if len(symbols) == 0 {
@@ -491,22 +514,7 @@ func opAnalysis(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 		return fmt.Errorf("get option analysis (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "option analysis")
-	for _, a := range out2 {
-		fmt.Fprintf(out, "  %-10s iv30d=%.4f hist_vol=%.4f iv/hv=%.4f call/put=%.4f vol_points=%d\n",
-			a.Symbol, a.ImpliedVol30Days, a.HisVolatility, a.IvHisVRatio, a.CallPutRatio, len(a.VolatilityList))
-		if m := a.ImpliedVolMetric; m != nil {
-			fmt.Fprintf(out, "    metric period=%-8s percentile=%.2f rank=%.2f\n",
-				rocli.Dash(m.Period), m.Percentile, m.Rank)
-		}
-		for i, p := range a.VolatilityList {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, len(a.VolatilityList), o.Limit)
-				break
-			}
-			fmt.Fprintf(out, "    %-22s iv=%.4f percentile=%.2f rank=%.2f hist_vol=%.4f\n",
-				rocli.MSFmt(p.Timestamp), p.ImpliedVol, p.Percentile, p.Rank, p.HisVolatility)
-		}
-	}
+	printAnalysis(out2, o.Limit)
 	return nil
 }
 

@@ -577,57 +577,57 @@ func TestPrintOptionSymbols(t *testing.T) {
 	})
 }
 
-// func TestPrintAnalysis(t *testing.T) {
-// 	t.Run("populated", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printAnalysis([]sdkmodel.OptionAnalysis{
-// 				{
-// 					Symbol:           "AAPL",
-// 					ImpliedVol30Days: 0.25,
-// 					HisVolatility:    0.20,
-// 					IvHisVRatio:      1.25,
-// 					CallPutRatio:     0.8,
-// 					VolatilityList:   []sdkmodel.OptionVolatilityPoint{},
-// 				},
-// 			}, 20)
-// 		})
-// 		for _, want := range []string{"AAPL", "0.2500"} {
-// 			if !strings.Contains(got, want) {
-// 				t.Errorf("output should contain %q, got:\n%s", want, got)
-// 			}
-// 		}
-// 	})
+func TestPrintAnalysis(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printAnalysis([]sdkmodel.OptionAnalysis{
+				{
+					Symbol:           "AAPL",
+					ImpliedVol30Days: 0.25,
+					HisVolatility:    0.20,
+					IvHisVRatio:      1.25,
+					CallPutRatio:     0.8,
+					VolatilityList:   []sdkmodel.OptionVolatilityPoint{},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "0.2500"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
 
-// 	t.Run("empty", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printAnalysis(nil, 20)
-// 		})
-// 		if !strings.Contains(got, "no rows") {
-// 			t.Errorf("empty analysis should say 'no rows', got:\n%s", got)
-// 		}
-// 	})
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printAnalysis(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty analysis should say 'no rows', got:\n%s", got)
+		}
+	})
 
-// 	t.Run("limit_truncates_volatility_list", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printAnalysis([]sdkmodel.OptionAnalysis{
-// 				{
-// 					Symbol:           "AAPL",
-// 					ImpliedVol30Days: 0.25,
-// 					HisVolatility:    0.20,
-// 					IvHisVRatio:      1.25,
-// 					CallPutRatio:     0.8,
-// 					VolatilityList: []sdkmodel.OptionVolatilityPoint{
-// 						{Timestamp: 1737116400000, ImpliedVol: 0.25, Percentile: 50, Rank: 60, HisVolatility: 0.20},
-// 						{Timestamp: 1737202800000, ImpliedVol: 0.26, Percentile: 55, Rank: 65, HisVolatility: 0.21},
-// 					},
-// 				},
-// 			}, 1)
-// 		})
-// 		if !strings.Contains(got, "1737116400000") {
-// 			t.Errorf("first volatility point should appear, got:\n%s", got)
-// 		}
-// 		if strings.Contains(got, "1737202800000") {
-// 			t.Errorf("second volatility point should not appear due to limit, got:\n%s", got)
-// 		}
-// 	})
-// }
+	t.Run("limit_truncates_volatility_list", func(t *testing.T) {
+		got := capture(t, func() {
+			printAnalysis([]sdkmodel.OptionAnalysis{
+				{
+					Symbol:           "AAPL",
+					ImpliedVol30Days: 0.25,
+					HisVolatility:    0.20,
+					IvHisVRatio:      1.25,
+					CallPutRatio:     0.8,
+					VolatilityList: []sdkmodel.OptionVolatilityPoint{
+						{Timestamp: 1737116400000, ImpliedVol: 0.25, Percentile: 50, Rank: 60, HisVolatility: 0.20},
+						{Timestamp: 1737202800000, ImpliedVol: 0.26, Percentile: 55, Rank: 65, HisVolatility: 0.21},
+					},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "2025-01-17") {
+			t.Errorf("first volatility point should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "2025-01-18") {
+			t.Errorf("second volatility point should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
