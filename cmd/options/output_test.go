@@ -538,44 +538,44 @@ func TestPrintOptionTimeline(t *testing.T) {
 	})
 }
 
-// func TestPrintOptionSymbols(t *testing.T) {
-// 	t.Run("populated", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionSymbols([]sdkmodel.OptionSymbol{
-// 				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
-// 			}, 20)
-// 		})
-// 		for _, want := range []string{"AAPL", "Apple Inc."} {
-// 			if !strings.Contains(got, want) {
-// 				t.Errorf("output should contain %q, got:\n%s", want, got)
-// 			}
-// 		}
-// 	})
+func TestPrintOptionSymbols(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionSymbols([]sdkmodel.OptionSymbol{
+				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "Apple Inc."} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
 
-// 	t.Run("empty", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionSymbols(nil, 20)
-// 		})
-// 		if !strings.Contains(got, "no rows") {
-// 			t.Errorf("empty symbols should say 'no rows', got:\n%s", got)
-// 		}
-// 	})
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionSymbols(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty symbols should say 'no rows', got:\n%s", got)
+		}
+	})
 
-// 	t.Run("limit", func(t *testing.T) {
-// 		got := capture(t, func() {
-// 			printOptionSymbols([]sdkmodel.OptionSymbol{
-// 				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
-// 				{Symbol: "TSLA", Market: "STOCK", NameEN: "Tesla Inc."},
-// 			}, 1)
-// 		})
-// 		if !strings.Contains(got, "AAPL") {
-// 			t.Errorf("first symbol should appear, got:\n%s", got)
-// 		}
-// 		if strings.Contains(got, "TSLA") {
-// 			t.Errorf("second symbol should not appear due to limit, got:\n%s", got)
-// 		}
-// 	})
-// }
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionSymbols([]sdkmodel.OptionSymbol{
+				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
+				{Symbol: "TSLA", Market: "STOCK", NameEN: "Tesla Inc."},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAPL") {
+			t.Errorf("first symbol should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "TSLA") {
+			t.Errorf("second symbol should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
 
 // func TestPrintAnalysis(t *testing.T) {
 // 	t.Run("populated", func(t *testing.T) {

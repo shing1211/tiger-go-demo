@@ -433,6 +433,24 @@ func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 
 // ---- symbols ----
 
+func printOptionSymbols(syms []sdkmodel.OptionSymbol, limit int) {
+	if len(syms) == 0 {
+		fmt.Fprintf(out, "  (no rows returned)\n")
+		return
+	}
+	for i, s := range syms {
+		if i >= limit {
+			rocli.Truncate(out, i, len(syms), limit)
+			break
+		}
+		name := s.NameEN
+		if name == "" {
+			name = s.NameCN
+		}
+		fmt.Fprintf(out, "  %-28s %-8s %-40s\n", rocli.Dash(s.Symbol), rocli.Dash(s.Market), rocli.Dash(name))
+	}
+}
+
 func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
@@ -443,17 +461,7 @@ func opSymbols(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	}
 	rocli.Section(out, "option symbols (market=%s)", o.Market)
 	fmt.Fprintf(out, "  %-28s %-8s %-40s\n", "SYMBOL", "MARKET", "NAME")
-	for i, s := range syms {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(syms), o.Limit)
-			break
-		}
-		name := s.NameEN
-		if name == "" {
-			name = s.NameCN
-		}
-		fmt.Fprintf(out, "  %-28s %-8s %-40s\n", rocli.Dash(s.Symbol), rocli.Dash(s.Market), rocli.Dash(name))
-	}
+	printOptionSymbols(syms, o.Limit)
 	return nil
 }
 
