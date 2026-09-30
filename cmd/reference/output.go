@@ -711,6 +711,33 @@ func opIndustryStocks(ctx context.Context, qc *sdkquote.QuoteClient, o options) 
 
 // ---- extras ----
 
+// printTradeTicks renders the tick stream of each requested symbol.
+//
+// The limit is applied per tick, not across the whole response: each entry in
+// ticks is one symbol's index range, so a shared counter would let the first
+// symbol's ticks use up the budget and leave later symbols with none, which
+// reads like those symbols never traded. The tick heading therefore always
+// prints, even when every row under it is capped away, so a symbol that did
+// trade is still visible.
+func printTradeTicks(ticks []sdkmodel.TradeTick, limit int) {
+	if len(ticks) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for _, t := range ticks {
+		fmt.Fprintf(out, "  %s (%d..%d, %d tick(s))\n", t.Symbol, t.BeginIndex, t.EndIndex, len(t.Items))
+		fmt.Fprintf(out, "  %-22s %-8s %10s %12s\n", "TIME", "COND", "PRICE", "VOLUME")
+		for i, it := range t.Items {
+			if i >= limit {
+				rocli.Truncate(out, i, len(t.Items), limit)
+				break
+			}
+			fmt.Fprintf(out, "  %-22s %-8s %10.4f %12d\n",
+				rocli.MSFmt(it.Time), rocli.Dash(it.Cond), it.Price, it.Volume)
+		}
+	}
+}
+
 // opTicks returns stock trade ticks. Unlike the option and futures tick
 // endpoints this one takes a symbol list plus an index range, which is what
 // makes it usable for equities.
@@ -731,18 +758,7 @@ func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get trade ticks (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "trade ticks")
-	for _, t := range ticks {
-		fmt.Fprintf(out, "  %s (%d..%d, %d tick(s))\n", t.Symbol, t.BeginIndex, t.EndIndex, len(t.Items))
-		fmt.Fprintf(out, "  %-22s %-8s %10s %12s\n", "TIME", "COND", "PRICE", "VOLUME")
-		for i, it := range t.Items {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, len(t.Items), o.Limit)
-				break
-			}
-			fmt.Fprintf(out, "  %-22s %-8s %10.4f %12d\n",
-				rocli.MSFmt(it.Time), rocli.Dash(it.Cond), it.Price, it.Volume)
-		}
-	}
+	printTradeTicks(ticks, o.Limit)
 	return nil
 }
 

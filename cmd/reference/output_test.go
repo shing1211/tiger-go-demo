@@ -804,3 +804,56 @@ func TestPrintIndustryStocks(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintTradeTicks(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printTradeTicks([]sdkmodel.TradeTick{
+				{Symbol: "AAPL", BeginIndex: 1, EndIndex: 1, Items: []sdkmodel.TradeTickItem{
+					{Time: 1767225600000, Volume: 100, Price: 187.25, Cond: "regular"},
+				}},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "1 tick(s)", "187.2500", "regular"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if !strings.Contains(got, rocli.MSFmt(1767225600000)) {
+			t.Errorf("output should contain the rendered tick time, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printTradeTicks(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty tick list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates the inner item loop", func(t *testing.T) {
+		// -limit caps the ticks within a symbol's index range, not the symbols:
+		// the outer loop runs over every tick the server sent so a multi-symbol
+		// request does not lose a symbol entirely, and only the rows inside each
+		// tick are capped. Distinct prices are what let this test tell the third
+		// row apart from the first two.
+		got := capture(t, func() {
+			printTradeTicks([]sdkmodel.TradeTick{
+				{Symbol: "AAPL", BeginIndex: 1, EndIndex: 3, Items: []sdkmodel.TradeTickItem{
+					{Time: 1767225600000, Volume: 100, Price: 111.11},
+					{Time: 1767225601000, Volume: 200, Price: 222.22},
+					{Time: 1767225602000, Volume: 300, Price: 333.33},
+				}},
+			}, 2)
+		})
+		if !strings.Contains(got, "111.1100") || !strings.Contains(got, "222.2200") {
+			t.Errorf("items within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "333.3300") {
+			t.Errorf("an item past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated tick should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+}
