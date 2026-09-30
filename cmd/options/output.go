@@ -288,6 +288,36 @@ func opKlinePlain(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 
 // ---- depth ----
 
+func printDepth(depths []sdkmodel.Depth, limit int) {
+	if len(depths) == 0 {
+		fmt.Fprintf(out, "  (no rows returned)\n")
+		return
+	}
+	for _, d := range depths {
+		fmt.Fprintf(out, "  %s\n", d.Symbol)
+		n := len(d.Asks)
+		if len(d.Bids) > n {
+			n = len(d.Bids)
+		}
+		fmt.Fprintf(out, "  %-10s %10s %10s   %10s %10s\n", "BID", "SIZE", "COUNT", "ASK", "SIZE")
+		for i := 0; i < n; i++ {
+			if i >= limit {
+				rocli.Truncate(out, i, n, limit)
+				break
+			}
+			bp, bs, bc := "-", "-", "-"
+			if i < len(d.Bids) {
+				bp, bs, bc = rocli.Px(d.Bids[i].Price), itoa(int64(d.Bids[i].Volume)), itoa(int64(d.Bids[i].Count))
+			}
+			ap, as := "-", "-"
+			if i < len(d.Asks) {
+				ap, as = rocli.Px(d.Asks[i].Price), itoa(d.Asks[i].Volume)
+			}
+			fmt.Fprintf(out, "  %-10s %10s %10s   %10s %10s\n", bp, bs, bc, ap, as)
+		}
+	}
+}
+
 func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	items, err := parseIdentifiers(rocli.ListRaw(o.ids))
 	if err != nil {
@@ -305,29 +335,7 @@ func opDepth(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get option depth: %w", err)
 	}
 	rocli.Section(out, "option order book (market=%s)", o.Market)
-	for _, d := range depths {
-		fmt.Fprintf(out, "  %s\n", d.Symbol)
-		n := len(d.Asks)
-		if len(d.Bids) > n {
-			n = len(d.Bids)
-		}
-		fmt.Fprintf(out, "  %-10s %10s %10s   %10s %10s\n", "BID", "SIZE", "COUNT", "ASK", "SIZE")
-		for i := 0; i < n; i++ {
-			if i >= o.Limit {
-				rocli.Truncate(out, i, n, o.Limit)
-				break
-			}
-			bp, bs, bc := "-", "-", "-"
-			if i < len(d.Bids) {
-				bp, bs, bc = rocli.Px(d.Bids[i].Price), itoa(int64(d.Bids[i].Volume)), itoa(int64(d.Bids[i].Count))
-			}
-			ap, as := "-", "-"
-			if i < len(d.Asks) {
-				ap, as = rocli.Px(d.Asks[i].Price), itoa(d.Asks[i].Volume)
-			}
-			fmt.Fprintf(out, "  %-10s %10s %10s   %10s %10s\n", bp, bs, bc, ap, as)
-		}
-	}
+	printDepth(depths, o.Limit)
 	return nil
 }
 

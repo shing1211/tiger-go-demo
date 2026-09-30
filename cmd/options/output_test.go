@@ -382,3 +382,253 @@ func TestPrintKlinesPlain(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintDepth(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printDepth([]sdkmodel.Depth{
+				{
+					Symbol: "AAPL",
+					Bids:   []sdkmodel.DepthLevel{{Price: 100.0, Volume: 10, Count: 2}},
+					Asks:   []sdkmodel.DepthLevel{{Price: 101.0, Volume: 5, Count: 1}},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "100.0000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printDepth(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty depths should say 'no rows', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printDepth([]sdkmodel.Depth{
+				{
+					Symbol: "AAPL",
+					Bids: []sdkmodel.DepthLevel{
+						{Price: 100.0, Volume: 10, Count: 2},
+						{Price: 99.0, Volume: 8, Count: 1},
+					},
+					Asks: []sdkmodel.DepthLevel{},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "100.0000") {
+			t.Errorf("first bid should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "99.0000") {
+			t.Errorf("second bid should not appear due to limit, got:\n%s", got)
+		}
+	})
+}
+
+// TODO: uncomment after implementing printTicks
+// func TestPrintTicks(t *testing.T) {
+// 	t.Run("populated", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printTicks([]sdkmodel.TradeTick{
+// 				{
+// 					Symbol:     "AAPL",
+// 					BeginIndex: 0,
+// 					EndIndex:   1,
+// 					Items:      []sdkmodel.TradeTickItem{{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100}},
+// 				},
+// 			}, 20)
+// 		})
+// 		for _, want := range []string{"AAPL", "100.5000"} {
+// 			if !strings.Contains(got, want) {
+// 				t.Errorf("output should contain %q, got:\n%s", want, got)
+// 			}
+// 		}
+// 	})
+
+// 	t.Run("empty", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printTicks(nil, 20)
+// 		})
+// 		if !strings.Contains(got, "no rows") {
+// 			t.Errorf("empty ticks should say 'no rows', got:\n%s", got)
+// 		}
+// 	})
+
+// 	t.Run("limit_truncates_inner_loop", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printTicks([]sdkmodel.TradeTick{
+// 				{
+// 					Symbol:     "AAPL",
+// 					BeginIndex: 0,
+// 					EndIndex:   2,
+// 					Items: []sdkmodel.TradeTickItem{
+// 						{Time: 1737116400000, Cond: "=", Price: 100.5, Volume: 100},
+// 						{Time: 1737116460000, Cond: "=", Price: 101.0, Volume: 200},
+// 					},
+// 				},
+// 			}, 1)
+// 		})
+// 		if !strings.Contains(got, "100.5000") {
+// 			t.Errorf("first tick should appear, got:\n%s", got)
+// 		}
+// 		if strings.Contains(got, "101.0000") {
+// 			t.Errorf("second tick should not appear due to limit, got:\n%s", got)
+// 		}
+// 	})
+// }
+
+// func TestPrintOptionTimeline(t *testing.T) {
+// 	t.Run("populated", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionTimeline([]sdkmodel.Timeline{
+// 				{
+// 					Symbol:   "AAPL",
+// 					Period:   "2025-01-17",
+// 					PreClose: 100.0,
+// 					Intraday: &sdkmodel.TimelineBucket{
+// 						Items: []sdkmodel.TimelineItem{{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234}},
+// 					},
+// 				},
+// 			}, 20)
+// 		})
+// 		for _, want := range []string{"AAPL", "100.5000"} {
+// 			if !strings.Contains(got, want) {
+// 				t.Errorf("output should contain %q, got:\n%s", want, got)
+// 			}
+// 		}
+// 	})
+
+// 	t.Run("empty", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionTimeline(nil, 20)
+// 		})
+// 		if !strings.Contains(got, "no rows") {
+// 			t.Errorf("empty timeline should say 'no rows', got:\n%s", got)
+// 		}
+// 	})
+
+// 	t.Run("limit_per_bucket", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionTimeline([]sdkmodel.Timeline{
+// 				{
+// 					Symbol:   "AAPL",
+// 					Period:   "2025-01-17",
+// 					PreClose: 100.0,
+// 					Intraday: &sdkmodel.TimelineBucket{
+// 						Items: []sdkmodel.TimelineItem{
+// 							{Time: 1737116400000, Price: 100.5, AvgPrice: 100.4, Volume: 1234},
+// 							{Time: 1737116460000, Price: 101.0, AvgPrice: 100.9, Volume: 2345},
+// 						},
+// 					},
+// 				},
+// 			}, 1)
+// 		})
+// 		if !strings.Contains(got, "100.5000") {
+// 			t.Errorf("first item should appear, got:\n%s", got)
+// 		}
+// 		if strings.Contains(got, "101.0000") {
+// 			t.Errorf("second item should not appear due to limit, got:\n%s", got)
+// 		}
+// 	})
+// }
+
+// func TestPrintOptionSymbols(t *testing.T) {
+// 	t.Run("populated", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionSymbols([]sdkmodel.OptionSymbol{
+// 				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
+// 			}, 20)
+// 		})
+// 		for _, want := range []string{"AAPL", "Apple Inc."} {
+// 			if !strings.Contains(got, want) {
+// 				t.Errorf("output should contain %q, got:\n%s", want, got)
+// 			}
+// 		}
+// 	})
+
+// 	t.Run("empty", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionSymbols(nil, 20)
+// 		})
+// 		if !strings.Contains(got, "no rows") {
+// 			t.Errorf("empty symbols should say 'no rows', got:\n%s", got)
+// 		}
+// 	})
+
+// 	t.Run("limit", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printOptionSymbols([]sdkmodel.OptionSymbol{
+// 				{Symbol: "AAPL", Market: "STOCK", NameEN: "Apple Inc."},
+// 				{Symbol: "TSLA", Market: "STOCK", NameEN: "Tesla Inc."},
+// 			}, 1)
+// 		})
+// 		if !strings.Contains(got, "AAPL") {
+// 			t.Errorf("first symbol should appear, got:\n%s", got)
+// 		}
+// 		if strings.Contains(got, "TSLA") {
+// 			t.Errorf("second symbol should not appear due to limit, got:\n%s", got)
+// 		}
+// 	})
+// }
+
+// func TestPrintAnalysis(t *testing.T) {
+// 	t.Run("populated", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printAnalysis([]sdkmodel.OptionAnalysis{
+// 				{
+// 					Symbol:           "AAPL",
+// 					ImpliedVol30Days: 0.25,
+// 					HisVolatility:    0.20,
+// 					IvHisVRatio:      1.25,
+// 					CallPutRatio:     0.8,
+// 					VolatilityList:   []sdkmodel.OptionVolatilityPoint{},
+// 				},
+// 			}, 20)
+// 		})
+// 		for _, want := range []string{"AAPL", "0.2500"} {
+// 			if !strings.Contains(got, want) {
+// 				t.Errorf("output should contain %q, got:\n%s", want, got)
+// 			}
+// 		}
+// 	})
+
+// 	t.Run("empty", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printAnalysis(nil, 20)
+// 		})
+// 		if !strings.Contains(got, "no rows") {
+// 			t.Errorf("empty analysis should say 'no rows', got:\n%s", got)
+// 		}
+// 	})
+
+// 	t.Run("limit_truncates_volatility_list", func(t *testing.T) {
+// 		got := capture(t, func() {
+// 			printAnalysis([]sdkmodel.OptionAnalysis{
+// 				{
+// 					Symbol:           "AAPL",
+// 					ImpliedVol30Days: 0.25,
+// 					HisVolatility:    0.20,
+// 					IvHisVRatio:      1.25,
+// 					CallPutRatio:     0.8,
+// 					VolatilityList: []sdkmodel.OptionVolatilityPoint{
+// 						{Timestamp: 1737116400000, ImpliedVol: 0.25, Percentile: 50, Rank: 60, HisVolatility: 0.20},
+// 						{Timestamp: 1737202800000, ImpliedVol: 0.26, Percentile: 55, Rank: 65, HisVolatility: 0.21},
+// 					},
+// 				},
+// 			}, 1)
+// 		})
+// 		if !strings.Contains(got, "1737116400000") {
+// 			t.Errorf("first volatility point should appear, got:\n%s", got)
+// 		}
+// 		if strings.Contains(got, "1737202800000") {
+// 			t.Errorf("second volatility point should not appear due to limit, got:\n%s", got)
+// 		}
+// 	})
+// }
