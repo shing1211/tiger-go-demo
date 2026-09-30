@@ -151,22 +151,26 @@ func opIPO(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get IPOs (%s, market=%s): %w", strings.Join(symbols, ","), o.Market, err)
 	}
 	rocli.Section(out, "IPOs (market=%s)", o.Market)
+	printIPOs(rows, o.Limit)
+	return nil
+}
+
+func printIPOs(rows []sdkmodel.CorporateIPO, limit int) {
 	if len(rows) == 0 {
 		fmt.Fprintln(out, "  (no rows returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  %-12s %-14s %-30s %-12s %-14s %12s %-8s\n",
 		"SYMBOL", "LISTED", "NAME", "EXECUTE", "PRICE_RANGE", "OFFER", "CCY")
 	for i, r := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(rows), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-12s %-14s %-30s %-12s %-14s %12.2f %-8s\n",
 			r.Symbol, rocli.Dash(r.ListingDate), rocli.Dash(r.IpoName), rocli.Dash(r.ExecuteDate),
 			rocli.Dash(r.PriceRange), r.OfferAmount, rocli.Dash(r.Currency))
 	}
-	return nil
 }
 
 // opSymbolChange reports ticker renames.
