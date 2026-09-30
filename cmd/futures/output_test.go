@@ -63,3 +63,37 @@ func TestPrintContracts(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintExchanges(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printExchanges([]sdkmodel.FutureExchange{
+				{Code: "NYSE", Name: "New York Stock Exchange", ZoneID: "America/New_York"},
+			}, 10)
+		})
+		if !strings.Contains(got, "NYSE") {
+			t.Errorf("output should contain NYSE; got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printExchanges(nil, 10) })
+		if !strings.Contains(got, "no rows returned") {
+			t.Errorf("empty should say 'no rows returned'; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printExchanges([]sdkmodel.FutureExchange{
+				{Code: "AA"}, {Code: "BB"}, {Code: "CC"},
+			}, 2)
+		})
+		if !strings.Contains(got, "AA") || !strings.Contains(got, "BB") {
+			t.Errorf("first two should be present; got:\n%s", got)
+		}
+		if strings.Contains(got, "CC") {
+			t.Errorf("third should be absent; got:\n%s", got)
+		}
+	})
+}

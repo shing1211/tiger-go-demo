@@ -23,6 +23,20 @@ var out io.Writer = os.Stdout
 
 // ---- exchange list ----
 
+func printExchanges(exchanges []sdkmodel.FutureExchange, limit int) {
+	if len(exchanges) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-36s %-12s\n", "CODE", "NAME", "ZONE")
+	for i, e := range exchanges {
+		if i >= limit {
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-36s %-12s\n", rocli.Dash(e.Code), rocli.Dash(e.Name), rocli.Dash(e.ZoneID))
+	}
+}
+
 // opExchange lists the exchanges on which Tiger quotes futures.
 func opExchange(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	if err := ctx.Err(); err != nil {
@@ -33,14 +47,7 @@ func opExchange(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 		return fmt.Errorf("get future exchange list: %w", err)
 	}
 	rocli.Section(out, "future exchanges")
-	fmt.Fprintf(out, "  %-12s %-36s %-12s\n", "CODE", "NAME", "ZONE")
-	for i, e := range exchanges {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(exchanges), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-36s %-12s\n", rocli.Dash(e.Code), rocli.Dash(e.Name), rocli.Dash(e.ZoneID))
-	}
+	printExchanges(exchanges, o.Limit)
 	return nil
 }
 
