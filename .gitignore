@@ -26,6 +26,7 @@ tiger-go-demo
 # Go
 *.test
 *.out
+*.exe
 coverage.txt
 
 # Superpowers scratch (ledger, briefs, review packages)
