@@ -223,21 +223,25 @@ func opDelisting(ctx context.Context, qc *sdkquote.QuoteClient, o options) error
 		return fmt.Errorf("get delistings (%s, market=%s): %w", strings.Join(symbols, ","), o.Market, err)
 	}
 	rocli.Section(out, "delistings (market=%s)", o.Market)
+	printDelistings(rows, o.Limit)
+	return nil
+}
+
+func printDelistings(rows []sdkmodel.CorporateDelisting, limit int) {
 	if len(rows) == 0 {
 		fmt.Fprintln(out, "  (no rows returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  %-12s %-12s %-12s %-12s %s\n", "SYMBOL", "ANNOUNCED", "EXECUTE", "ACTION", "REASON")
 	for i, r := range rows {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(rows), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(rows), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-12s %-12s %-12s %-12s %s\n",
 			r.Symbol, rocli.Dash(r.AnnouncedDate), rocli.Dash(r.ExecuteDate),
 			rocli.Dash(r.ActionType), rocli.Dash(r.Reason))
 	}
-	return nil
 }
 
 // actionRequestFor builds a request with an explicit action type and no

@@ -105,6 +105,41 @@ func TestPrintSymbolChanges(t *testing.T) {
 	})
 }
 
+func TestPrintDelistings(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printDelistings([]sdkmodel.CorporateDelisting{
+				{Symbol: "XYZ", ActionType: "VOLUNTARY", ExecuteDate: "2025-01-17"},
+			}, 20)
+		})
+		if !strings.Contains(got, "XYZ") {
+			t.Errorf("output should contain XYZ, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() { printDelistings(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty result should say 'no rows returned', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printDelistings([]sdkmodel.CorporateDelisting{
+				{Symbol: "AAA"},
+				{Symbol: "BBB"},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAA") {
+			t.Errorf("row within limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "BBB") {
+			t.Errorf("row past limit should not print; got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintIPOs(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
