@@ -857,3 +857,70 @@ func TestPrintTradeTicks(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintRefTimeline(t *testing.T) {
+	at := func(clock string) int64 {
+		t.Helper()
+		ts, err := time.ParseInLocation("2006-01-02 15:04:05", "2026-06-19 "+clock+":00", time.Local)
+		if err != nil {
+			t.Fatalf("parse %q: %v", clock, err)
+		}
+		return ts.UnixMilli()
+	}
+
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printRefTimeline([]sdkmodel.Timeline{
+				{Symbol: "AAPL", Period: "2026-06-19", PreClose: 187.10,
+					Intraday: &sdkmodel.TimelineBucket{Items: []sdkmodel.TimelineItem{
+						{Time: at("09:30"), Price: 187.30, AvgPrice: 187.25, Volume: 1000},
+					}},
+				},
+			}, 20)
+		})
+		for _, want := range []string{"AAPL", "2026-06-19", "187.1000", "intraday", "1 point(s)", "187.3000"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output should contain %q, got:\n%s", want, got)
+			}
+		}
+		if !strings.Contains(got, rocli.MSFmt(at("09:30"))) {
+			t.Errorf("output should contain the rendered point time, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says so", func(t *testing.T) {
+		got := capture(t, func() { printRefTimeline(nil, 20) })
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("an empty timeline list should say so; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit applies per session bucket", func(t *testing.T) {
+		// Each bucket is capped by the same limit independently, so -limit means
+		// "points per session" rather than "points in total". That is the reading
+		// the output supports: the count on the bucket line is the bucket's own
+		// length, so a capped bucket still reports how many points it held.
+		got := capture(t, func() {
+			printRefTimeline([]sdkmodel.Timeline{
+				{Symbol: "AAPL", Period: "2026-06-19", PreClose: 187.10,
+					Intraday: &sdkmodel.TimelineBucket{Items: []sdkmodel.TimelineItem{
+						{Time: at("09:30"), Price: 111.11, Volume: 100},
+						{Time: at("09:31"), Price: 222.22, Volume: 200},
+					}},
+				},
+			}, 1)
+		})
+		if !strings.Contains(got, "111.1100") {
+			t.Errorf("the first point should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "222.2200") {
+			t.Errorf("a point past the limit should not print; got:\n%s", got)
+		}
+		if !strings.Contains(got, "2 point(s)") {
+			t.Errorf("a capped bucket should still report how many points it held; got:\n%s", got)
+		}
+		if !strings.Contains(got, "1 more row(s) not shown") {
+			t.Errorf("a truncated bucket should say how many rows were dropped; got:\n%s", got)
+		}
+	})
+}

@@ -762,6 +762,45 @@ func opTicks(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	return nil
 }
 
+// printRefTimeline renders today's intraday timeline.
+//
+// The limit applies to each session bucket on its own, so -limit reads as
+// "points per session" and a reader who asked for 20 still sees 20 pre-market,
+// 20 regular and 20 after-hours points rather than 60 of whichever came first.
+// An absent or empty bucket prints nothing here, unlike the historical timeline,
+// which names the sessions it has none for: this endpoint returns only the
+// sessions it has, so a missing bucket carries no information worth a heading.
+func printRefTimeline(tls []sdkmodel.Timeline, limit int) {
+	if len(tls) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	for _, t := range tls {
+		fmt.Fprintf(out, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
+		for _, b := range []struct {
+			name   string
+			bucket *sdkmodel.TimelineBucket
+		}{
+			{"pre_hours", t.PreHours},
+			{"intraday", t.Intraday},
+			{"after_hours", t.AfterHours},
+		} {
+			if b.bucket == nil || len(b.bucket.Items) == 0 {
+				continue
+			}
+			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
+			for i, it := range b.bucket.Items {
+				if i >= limit {
+					rocli.Truncate(out, i, len(b.bucket.Items), limit)
+					break
+				}
+				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
+					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
+			}
+		}
+	}
+}
+
 // opTimeline returns the intraday timeline via the v3 request form, which also
 // covers crypto when -sec-type CC is used.
 func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
@@ -780,30 +819,7 @@ func opTimeline(ctx context.Context, qc *sdkquote.QuoteClient, o options) error 
 		return fmt.Errorf("get timeline (sec_type=%s): %w", o.SecType, err)
 	}
 	rocli.Section(out, "intraday timeline")
-	for _, t := range tls {
-		fmt.Fprintf(out, "  %-12s period=%-8s pre_close=%.4f\n", t.Symbol, t.Period, t.PreClose)
-		for _, b := range []struct {
-			name   string
-			bucket *sdkmodel.TimelineBucket
-		}{
-			{"pre_hours", t.PreHours},
-			{"intraday", t.Intraday},
-			{"after_hours", t.AfterHours},
-		} {
-			if b.bucket == nil || len(b.bucket.Items) == 0 {
-				continue
-			}
-			fmt.Fprintf(out, "  [%s] %d point(s)\n", b.name, len(b.bucket.Items))
-			for i, it := range b.bucket.Items {
-				if i >= o.Limit {
-					rocli.Truncate(out, i, len(b.bucket.Items), o.Limit)
-					break
-				}
-				fmt.Fprintf(out, "    %-22s price=%.4f avg=%.4f volume=%d\n",
-					rocli.MSFmt(it.Time), it.Price, it.AvgPrice, it.Volume)
-			}
-		}
-	}
+	printRefTimeline(tls, o.Limit)
 	return nil
 }
 
