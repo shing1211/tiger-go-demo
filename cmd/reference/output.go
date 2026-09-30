@@ -977,6 +977,27 @@ func opTradeMetas(ctx context.Context, qc *sdkquote.QuoteClient, o options) erro
 	return nil
 }
 
+// printQuotePermissions renders the market-data permissions the account holds
+// and when each expires.
+//
+// The empty message is not the package's usual "(no rows returned)". A caller who
+// asks this question is usually chasing a stale or refused quote, and "the
+// account holds no entitlement at all" is the answer they need, not "your date
+// range matched nothing".
+func printQuotePermissions(perms []sdkmodel.QuotePermission, limit int) {
+	if len(perms) == 0 {
+		fmt.Fprintln(out, "  (no permissions returned)")
+		return
+	}
+	for i, p := range perms {
+		if i >= limit {
+			rocli.Truncate(out, i, len(perms), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-30s expires_at=%s\n", rocli.Dash(p.Name), rocli.MSFmt(p.ExpireAt))
+	}
+}
+
 // opQuotePermission reports which market-data permissions the account holds and
 // when they expire. It is a read; GrabQuotePermission, which CLAIMS a
 // permission, is deliberately not wired up here.
@@ -993,17 +1014,7 @@ func opQuotePermission(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 		return fmt.Errorf("get quote permission (%s..%s): %w", rocli.DashOr(o.beginDate, "open"), rocli.DashOr(o.endDate, "open"), err)
 	}
 	rocli.Section(out, "quote permissions")
-	if len(perms) == 0 {
-		fmt.Fprintln(out, "  (no permissions returned)")
-		return nil
-	}
-	for i, p := range perms {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(perms), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-30s expires_at=%s\n", rocli.Dash(p.Name), rocli.MSFmt(p.ExpireAt))
-	}
+	printQuotePermissions(perms, o.Limit)
 	return nil
 }
 

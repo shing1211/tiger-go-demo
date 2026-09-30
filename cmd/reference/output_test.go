@@ -1061,3 +1061,47 @@ func TestPrintTradeMetas(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintQuotePermissions(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		// A permission is identified by its Name, not a symbol: the account holds
+		// entitlements to quote feeds, not to instruments. The expiry is rendered
+		// through rocli.MSFmt so the expected string is built the same way the
+		// printer builds it rather than hard-coded to a timezone.
+		got := capture(t, func() {
+			printQuotePermissions([]sdkmodel.QuotePermission{
+				{Name: "us_stock_nbbo", ExpireAt: 1767225600000},
+			}, 20)
+		})
+		if !strings.Contains(got, "us_stock_nbbo") {
+			t.Errorf("output should contain the permission name, got:\n%s", got)
+		}
+		if !strings.Contains(got, "expires_at="+rocli.MSFmt(1767225600000)) {
+			t.Errorf("output should contain the rendered expiry, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty says no permissions returned", func(t *testing.T) {
+		// Not the standard "(no rows returned)": a caller checking why a quote
+		// feed is stale wants to know the account holds no entitlement at all,
+		// which is a different thing from a date range that matched no rows.
+		got := capture(t, func() { printQuotePermissions(nil, 20) })
+		if !strings.Contains(got, "(no permissions returned)") {
+			t.Errorf("an empty list should say no permissions returned; got:\n%s", got)
+		}
+	})
+
+	t.Run("limit truncates", func(t *testing.T) {
+		got := capture(t, func() {
+			printQuotePermissions([]sdkmodel.QuotePermission{
+				{Name: "aaa_l2"}, {Name: "bbb_l2"},
+			}, 1)
+		})
+		if !strings.Contains(got, "aaa_l2") {
+			t.Errorf("rows within the limit should print; got:\n%s", got)
+		}
+		if strings.Contains(got, "bbb_l2") {
+			t.Errorf("a row past the limit should not print; got:\n%s", got)
+		}
+	})
+}
