@@ -363,6 +363,22 @@ func opFinancialReport(ctx context.Context, qc *sdkquote.QuoteClient, o options)
 	return nil
 }
 
+// printFinancialCurrencies renders the trading currency of each symbol.
+func printFinancialCurrencies(currencies []sdkmodel.FinancialCurrency, limit int) {
+	if len(currencies) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
+	fmt.Fprintf(out, "  %-12s %-8s %-8s\n", "SYMBOL", "MARKET", "CCY")
+	for i, c := range currencies {
+		if i >= limit {
+			rocli.Truncate(out, i, len(currencies), limit)
+			break
+		}
+		fmt.Fprintf(out, "  %-12s %-8s %-8s\n", rocli.Dash(c.Symbol), rocli.Dash(c.Market), rocli.Dash(c.Currency))
+	}
+}
+
 // opFinancialCurrency reports the trading currency of each symbol.
 func opFinancialCurrency(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 	symbols := rocli.List(o.symbols)
@@ -381,14 +397,7 @@ func opFinancialCurrency(ctx context.Context, qc *sdkquote.QuoteClient, o option
 		return fmt.Errorf("get financial currency (%s): %w", strings.Join(symbols, ","), err)
 	}
 	rocli.Section(out, "financial currency")
-	fmt.Fprintf(out, "  %-12s %-8s %-8s\n", "SYMBOL", "MARKET", "CCY")
-	for i, c := range ccies {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(ccies), o.Limit)
-			break
-		}
-		fmt.Fprintf(out, "  %-12s %-8s %-8s\n", rocli.Dash(c.Symbol), rocli.Dash(c.Market), rocli.Dash(c.Currency))
-	}
+	printFinancialCurrencies(ccies, o.Limit)
 	return nil
 }
 
