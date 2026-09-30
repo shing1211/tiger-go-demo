@@ -1,0 +1,64 @@
+# The gate, run somewhere other than one contributor's machine.
+#
+# scripts/verify is the source of truth for what "green" means. This workflow
+# calls it rather than re-listing the steps, so a check added to the script is
+# enforced here automatically and the two cannot drift apart.
+#
+# The matrix is over operating systems, not Go versions. go.mod declares
+# `go 1.24`, and with Go's toolchain rules a 1.22 or 1.23 runner would either
+# refuse the module or quietly download 1.24 and test the same thing three
+# times. Pinning one Go version and varying the OS tests the thing that actually
+# differs between contributors, and two of the project's documented sharp edges
+# are platform-specific: CRLF line endings versus gofmt (the `.gitattributes`
+# `eol=lf` pin exists for exactly this), and the race detector's dependence on a
+# C toolchain, which is available here but was long assumed not to be on Windows.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report every platform's result even after one fails, so a single push
+      # shows all the problems rather than only the first.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Matches the `go` directive in go.mod. Bumping this is a deliberate
+          # change to the module, not a CI tweak.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Race detector availability
+        # Reported, not asserted. Whether -race engages depends on whether the
+        # runner image ships a C compiler, and that is a property of the image
+        # rather than of this repository — so this step records what happened
+        # instead of failing the build over it. scripts/verify still uses -race
+        # unless TIGER_NO_RACE is set, and the log line below makes a silently
+        # un-raced run visible rather than invisible.
+        run: |
+          echo "CGO_ENABLED=$(go env CGO_ENABLED)"
+          echo "CC=$(go env CC)"
+          if [ "$(go env CGO_ENABLED)" = "1" ]; then
+            echo "cgo is on; scripts/verify will use -race"
+          else
+            echo "cgo is off; scripts/verify will run without -race"
+          fi
+
+      - name: scripts/verify
+        run: ./scripts/verify

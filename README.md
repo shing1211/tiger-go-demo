@@ -1652,6 +1652,18 @@ scripts/verify                 # the gate: gofmt, vet, test, coverage-check
 TIGER_NO_RACE=1 scripts/verify # the same, without the race detector
 ```
 
+**And it now runs on CI too**, which is what the line above was asking for.
+[`.github/workflows/verify.yml`](.github/workflows/verify.yml) calls
+`scripts/verify` itself rather than re-listing the four commands, so a check added
+to the script is enforced automatically and the two cannot drift apart. It runs on
+`ubuntu-latest`, `windows-latest` and `macos-latest`, on every push to `main` and
+every pull request. The matrix is over operating systems rather than Go versions on
+purpose: `go.mod` declares `go 1.24`, so an older runner would either refuse the
+module or quietly download 1.24 and test the same thing repeatedly. The platforms
+differ in the ways that have actually bitten this project — CRLF against `gofmt`
+(what the `.gitattributes` `eol=lf` pin is for), and whether a C compiler is
+present for `-race`.
+
 Or the four commands directly, which is what the script runs:
 
 ```bash
