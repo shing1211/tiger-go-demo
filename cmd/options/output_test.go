@@ -251,3 +251,51 @@ func TestPrintGreeks(t *testing.T) {
 		}
 	})
 }
+
+func TestPrintOptionBriefs(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionBriefs([]sdkmodel.Brief{
+				{
+					Symbol:      "AAPL 250117C200",
+					Right:       "C",
+					Strike:      "200.0000",
+					LatestPrice: 12.5,
+					BidPrice:    12.0,
+					AskPrice:    13.0,
+					Volume:      1234,
+				},
+			}, 20)
+		})
+		if !strings.Contains(got, "AAPL 250117C200") {
+			t.Errorf("output should contain symbol, got:\n%s", got)
+		}
+		if !strings.Contains(got, "12.5000") {
+			t.Errorf("output should contain formatted price 12.5000, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionBriefs(nil, 20)
+		})
+		if !strings.Contains(got, "no rows") {
+			t.Errorf("empty briefs should say 'no rows', got:\n%s", got)
+		}
+	})
+
+	t.Run("limit", func(t *testing.T) {
+		got := capture(t, func() {
+			printOptionBriefs([]sdkmodel.Brief{
+				{Symbol: "AAPL 250117C200", Right: "C", Strike: "200.0000", LatestPrice: 12.5, BidPrice: 12.0, AskPrice: 13.0, Volume: 1234},
+				{Symbol: "AAPL 250117C250", Right: "C", Strike: "250.0000", LatestPrice: 8.5, BidPrice: 8.0, AskPrice: 9.0, Volume: 5678},
+			}, 1)
+		})
+		if !strings.Contains(got, "AAPL 250117C200") {
+			t.Errorf("first brief should appear, got:\n%s", got)
+		}
+		if strings.Contains(got, "AAPL 250117C250") {
+			t.Errorf("second brief should not appear due to limit, got:\n%s", got)
+		}
+	})
+}

@@ -187,16 +187,24 @@ func opQuote(ctx context.Context, qc *sdkquote.QuoteClient, o options) error {
 		return fmt.Errorf("get option quote: %w", err)
 	}
 	rocli.Section(out, "option quotes")
+	printOptionBriefs(briefs, o.Limit)
+	return nil
+}
+
+func printOptionBriefs(briefs []sdkmodel.Brief, limit int) {
+	if len(briefs) == 0 {
+		fmt.Fprintln(out, "  (no rows returned)")
+		return
+	}
 	fmt.Fprintf(out, "  %-28s %-6s %-10s %10s %10s %10s %12s\n", "SYMBOL", "RIGHT", "STRIKE", "LAST", "BID", "ASK", "VOLUME")
 	for i, b := range briefs {
-		if i >= o.Limit {
-			rocli.Truncate(out, i, len(briefs), o.Limit)
+		if i >= limit {
+			rocli.Truncate(out, i, len(briefs), limit)
 			break
 		}
 		fmt.Fprintf(out, "  %-28s %-6s %-10s %10.4f %10.4f %10.4f %12d\n",
 			b.Symbol, b.Right, rocli.Dash(b.Strike), b.LatestPrice, b.BidPrice, b.AskPrice, b.Volume)
 	}
-	return nil
 }
 
 // ---- kline ----
