@@ -311,9 +311,14 @@ func opCapitalDistribution(ctx context.Context, qc *sdkquote.QuoteClient, o opti
 		return fmt.Errorf("get capital distribution (%s, market=%s): %w", symbol, o.Market, err)
 	}
 	rocli.Section(out, "capital distribution (%s)", symbol)
+	printCapitalDistribution(dist)
+	return nil
+}
+
+func printCapitalDistribution(dist *sdkmodel.CapitalDistribution) {
 	if dist == nil {
 		fmt.Fprintln(out, "  (no data returned)")
-		return nil
+		return
 	}
 	fmt.Fprintf(out, "  net_inflow=%.2f\n", dist.NetInflow)
 	fmt.Fprintf(out, "  %-10s %16s %16s\n", "SIZE", "INFLOW", "OUTFLOW")
@@ -321,7 +326,6 @@ func opCapitalDistribution(ctx context.Context, qc *sdkquote.QuoteClient, o opti
 	fmt.Fprintf(out, "  %-10s %16.2f %16.2f\n", "big", dist.InBig, dist.OutBig)
 	fmt.Fprintf(out, "  %-10s %16.2f %16.2f\n", "mid", dist.InMid, dist.OutMid)
 	fmt.Fprintf(out, "  %-10s %16.2f %16.2f\n", "small", dist.InSmall, dist.OutSmall)
-	return nil
 }
 
 // ---- warrants ----

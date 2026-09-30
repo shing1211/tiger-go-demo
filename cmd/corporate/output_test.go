@@ -179,6 +179,26 @@ func TestPrintCapitalFlow(t *testing.T) {
 	})
 }
 
+func TestPrintCapitalDistribution(t *testing.T) {
+	t.Run("populated", func(t *testing.T) {
+		got := capture(t, func() {
+			printCapitalDistribution(&sdkmodel.CapitalDistribution{
+				NetInflow: 1000000.0,
+			})
+		})
+		if !strings.Contains(got, "1000000") {
+			t.Errorf("output should contain 1000000, got:\n%s", got)
+		}
+	})
+
+	t.Run("empty/nil", func(t *testing.T) {
+		got := capture(t, func() { printCapitalDistribution(nil) })
+		if !strings.Contains(got, "no data") {
+			t.Errorf("nil should say 'no data returned', got:\n%s", got)
+		}
+	})
+}
+
 func TestPrintIPOs(t *testing.T) {
 	t.Run("populated", func(t *testing.T) {
 		got := capture(t, func() {
