@@ -1663,10 +1663,19 @@ go test -count=1 -run TestSDKCoverage ./test/
 
 Two environment details, both learned the hard way on Windows:
 
-- **`-race` needs cgo, which needs a C toolchain**, and Windows provides neither
-  by default. `go test -race` exits 2 with `-race requires cgo`. The race detector
-  is the better default, so the script uses it unless `TIGER_NO_RACE=1`; that is
-  the opt-out, not the rule. `make test-norace` is the same escape hatch.
+- **`-race` needs cgo, which needs a C compiler.** Go's Windows installer does not
+  bundle one, so on a stock Windows box `go test -race` exits 2 with
+  `-race requires cgo`. That is a *missing toolchain*, not a property of Windows:
+  install MinGW-w64 and put it on `PATH` and the race detector works. Verified on
+  this project's own machine, where a MinGW-w64 `gcc` sits in `~/mingw64/bin` and
+  the whole suite passes clean under `-race` — including `cmd/push`, which is where
+  the concurrency actually is (delivery tracker, cooldown policy). An earlier
+  version of this file claimed Windows "provides neither [cgo nor a C toolchain] by
+  default" and that claim was never tested; it was used as the reason to run every
+  gate in this project with `TIGER_NO_RACE=1`. The race detector is the better
+  default, so the script uses it unless `TIGER_NO_RACE=1`; that is the opt-out, not
+  the rule. `make test-norace` is the same escape hatch, for machines with no C
+  toolchain at all.
 - **`gofmt` rejects CRLF**, and `core.autocrlf=true` — the Windows git default —
   turns every checked-out text file into one. `.gitattributes` now pins `eol=lf`
   for all text, which is why `gofmt -l .` prints nothing on a fresh clone. Without

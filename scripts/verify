@@ -31,10 +31,13 @@ echo "gofmt: clean"
 
 "$GO" vet ./...
 
-# -race needs cgo, which needs a C toolchain. Windows contributors usually have
-# neither, so the suite still has to pass without it. Set TIGER_NO_RACE=1 (or
-# use `make test-norace`) to skip it deliberately; the race detector is the
-# better default, so skipping is the opt-out rather than the rule.
+# -race needs cgo, which needs a C compiler. Go's Windows installer ships none,
+# so a stock Windows box has to opt out. That is a missing toolchain, not a
+# property of the platform: with a MinGW-w64 gcc on PATH the whole suite passes
+# clean under -race on Windows, which is how this file was last run. Set
+# TIGER_NO_RACE=1 (or use `make test-norace`) only on a machine with no C
+# toolchain. The race detector is the better default, so skipping is the opt-out
+# rather than the rule.
 if [ "${TIGER_NO_RACE:-0}" = "1" ]; then
 	"$GO" test -count=1 ./...
 else
