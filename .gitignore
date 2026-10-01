@@ -1,6 +1,10 @@
 # Secrets and credentials — NEVER commit these.
 .env
 .env.*
+.env.bak
+.env.*.bak
+.env.local
+.env.*.local
 !.env.example
 *.properties
 config.local.yaml
