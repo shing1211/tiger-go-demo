@@ -46,7 +46,17 @@ Types: `fix`, `feat`, `docs`, `chore`, `refactor`, `test`
 - All PRs require at least one review before merge
 - CI must pass before merge
 
+## OpenSpec
+
+This project uses OpenSpec for change planning. All non-trivial changes go through the OpenSpec workflow before implementation:
+
+1. Explore the problem: `/opsx-explore`
+2. Propose the change: `/opsx-propose`
+3. Implement from the change: `/opsx-apply`
+4. Archive after merge: `/opsx-archive`
+
+Run `openspec list` to see active changes.
+
 ## Questions
 
 Open an issue for discussion before starting work on non-trivial changes.
-
