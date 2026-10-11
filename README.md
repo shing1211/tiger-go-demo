@@ -57,7 +57,7 @@ record of past runs is not a statement about the present. The accounting itself
 is kept here in full, because it is the evidence the rule is about:
 
 - **Proven:** the code compiles, `go vet` is clean, `gofmt` is clean, unit
-  tests pass (14 packages, 746 cases — see [Test suite](#test-suite)), all eight
+  tests pass (14 packages, 747 cases — see [Test suite](#test-suite)), all eight
   binaries build, `-h` works without credentials, missing credentials produce a
   precise actionable error, and the dry-run gate provably blocks order writes.
   The configuration loader, redaction, and the request-building path are
@@ -1766,13 +1766,13 @@ ok  	github.com/shing1211/tiger-go-demo/test	0.531s
 
 `go test ./...` puts **14** packages behind tests and passes. The case count —
 one `=== RUN` line per case, which is how `go test -v` reports every test and
-every subtest — is **746**, across 289 top-level test functions:
+every subtest — is **747**, across 290 top-level test functions:
 
 ```console
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^=== RUN'
-746
+747
 $ go test -count=1 -v ./... 2>&1 | grep -cE '^--- PASS:'
-289
+290
 $ go test -count=1 ./... | grep -c '^ok'
 14
 ```
