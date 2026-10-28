@@ -36,6 +36,9 @@ coverage.txt
 # Superpowers scratch (ledger, briefs, review packages)
 .superpowers/
 
+# CodeArts Agent local cache (file index, upload state, config)
+.codeartsdoer/
+
 # Editors / OS
 .DS_Store
 .idea/
