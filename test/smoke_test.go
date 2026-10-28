@@ -1,6 +1,7 @@
 package test
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -14,7 +15,18 @@ import (
 func chdirTemp(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Chdir(dir)
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(old); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)

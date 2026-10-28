@@ -15,7 +15,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -474,4 +473,11 @@ func identifiers(file *ast.File) []string {
 	return out
 }
 
-func contains(list []string, want string) bool { return slices.Contains(list, want) }
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
