@@ -1,6 +1,6 @@
 module github.com/shing1211/tiger-go-demo
 
-go 1.24
+go 1.20
 
 require (
 	github.com/tigerfintech/openapi-go-sdk v0.5.2

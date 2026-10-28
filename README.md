@@ -196,7 +196,7 @@ WARN  DRY RUN IS DISABLED — orders submitted from here are REAL and will be fi
 
 ## Setup
 
-Requires Go 1.24+.
+Requires Go 1.20+.
 
 ```bash
 cd ~/github/tiger-go-demo
@@ -1669,8 +1669,8 @@ inside the suite recurses into itself.
 to the script is enforced automatically and the two cannot drift apart. It runs on
 `ubuntu-latest`, `windows-latest` and `macos-latest`, on every push to `main` and
 every pull request. The matrix is over operating systems rather than Go versions on
-purpose: `go.mod` declares `go 1.24`, so an older runner would either refuse the
-module or quietly download 1.24 and test the same thing repeatedly. The platforms
+purpose: `go.mod` declares `go 1.20`, so an older runner would either refuse the
+module or quietly download 1.20 and test the same thing repeatedly. The platforms
 differ in the ways that have actually bitten this project — CRLF against `gofmt`
 (what the `.gitattributes` `eol=lf` pin is for), and whether a C compiler is
 present for `-race`.

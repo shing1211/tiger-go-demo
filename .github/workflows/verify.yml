@@ -5,8 +5,8 @@
 # enforced here automatically and the two cannot drift apart.
 #
 # The matrix is over operating systems, not Go versions. go.mod declares
-# `go 1.24`, and with Go's toolchain rules a 1.22 or 1.23 runner would either
-# refuse the module or quietly download 1.24 and test the same thing three
+# `go 1.20`, and with Go's toolchain rules a 1.19 or older runner would either
+# refuse the module or quietly download 1.20 and test the same thing three
 # times. Pinning one Go version and varying the OS tests the thing that actually
 # differs between contributors, and two of the project's documented sharp edges
 # are platform-specific: CRLF line endings versus gofmt (the `.gitattributes`
